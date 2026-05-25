@@ -16,7 +16,7 @@ A high-performance, native Rust spiking neural network (SNN) designed for lock-f
 
 ---
 
-## ⚡ Performance Benchmarks
+## Performance Benchmarks
 
 | Dataset / Task | Samples | Classes | Neuron Field Size | Training Time | Accuracy |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -28,7 +28,7 @@ A high-performance, native Rust spiking neural network (SNN) designed for lock-f
 
 ---
 
-## 🚀 How to Run
+## How to Run
 
 This project uses **`mise`** to manage toolchains and tasks.
 
@@ -70,7 +70,7 @@ mise run test
 
 ---
 
-## 🧠 Architectural Overview
+## Architectural Overview
 
 ### 1. Memory Configuration (`src/memory.rs`)
 Enforces a strict 16-byte layout and pointerless offset arithmetic.
@@ -131,7 +131,7 @@ A transactional execution framework. When an event fires in Trainer Mode, it bui
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the **Apache License 2.0**. 
 
