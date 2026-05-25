@@ -38,7 +38,7 @@ PyTorch     ██████████████████████�
 
 ## How to Run PoC
 
-This project uses **`mise`** to manage toolchains and tasks.
+This project uses [mise](https://mise.jdx.dev/) to manage toolchains and tasks.
 
 ### 0. Download the Datasets
 Before running the AG News or DBpedia classifiers, download and extract the datasets:
