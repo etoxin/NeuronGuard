@@ -1,0 +1,6 @@
+[tools]
+rust = "latest"
+
+[tasks.run]
+description = "run the app"
+run = "cargo run"
