@@ -137,6 +137,6 @@ A transactional execution framework. When an event fires in Trainer Mode, it bui
 
 ## 📄 License
 
-This project is licensed under the **GNU General Public License v3 (GPL v3)**. 
+This project is licensed under the **Apache License 2.0**. 
 
-Under this license, you are free to copy, modify, and distribute this software, but any derivative works or commercial products utilizing this code must also be open-sourced under the GPL v3. For commercial, closed-source licensing inquiries, please contact the repository owner. See the [LICENSE](LICENSE) file for the full license text.
+Under this license, you are free to copy, modify, distribute, and sell this software, including for commercial, closed-source products, provided that you include the original copyright and license notice. See the [LICENSE](LICENSE) file for the full license text.
