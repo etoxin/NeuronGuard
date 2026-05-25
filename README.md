@@ -26,6 +26,14 @@ A high-performance, native Rust spiking neural network (SNN) designed for lock-f
 
 *Benchmarks run on an Apple M2 Pro CPU.*
 
+```
+MEMORY CONSUMPTION
+
+NeuronGuard █ 32.22 KB
+            
+PyTorch     ██████████████████████████████████████████████████ est 500+ MB (Minimum runtime heap)
+```
+
 ---
 
 ## How to Run
