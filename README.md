@@ -27,7 +27,7 @@ A high-performance, native Rust spiking neural network (SNN) designed for lock-f
 *Benchmarks run on an Apple M2 Pro CPU.*
 
 ```
-MEMORY CONSUMPTION
+MEMORY CONSUMPTION (DBpedia Ontology Dataset)
 
 NeuronGuard █ 32.22 KB
             
