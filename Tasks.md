@@ -17,16 +17,16 @@ We will build this Proof of Concept step-by-step. Each task is broken down with 
   - Define the 16-byte aligned `GuardedNeuron` struct.
   - Implement `NeuronField` using raw pointers and offset arithmetic.
   - **TS Analogy:** Think of this as a `Float32Array` backed by a single shared `SharedArrayBuffer`, where we read/write at exact byte offsets.
-- [ ] **Task 2: Implement `src/queue.rs` (The Lock-Free Event Queue)**
+- [x] **Task 2: Implement `src/queue.rs` (The Lock-Free Event Queue)**
   - Define `EventPacket` and `RuntimeMode`.
   - Set up the multi-threaded worker pool using lock-free channels (`crossbeam-channel`).
   - **TS Analogy:** Think of this as a Node.js `Worker` pool pulling tasks from a thread-safe message channel.
-- [ ] **Task 3: Phase 1 Validation (Tests)**
+- [x] **Task 3: Phase 1 Validation (Tests)**
   - Write a compile-time size check test (verifying `GuardedNeuron` is exactly 16 bytes).
   - Write a multi-threaded stress test (4 threads, 10,000 events) to verify zero-lock thread independence.
 
 ### 🛡️ Phase 2: Dual-Mode Execution & The Guard Primitive
-- [ ] **Task 4: Implement `src/guard.rs` (The Transactional Guard)**
+- [x] **Task 4: Implement `src/guard.rs` (The Transactional Guard)**
   - Create the `Guard` struct that represents an active execution scope.
   - Implement the forward propagation and backward feedback trace.
   - **TS Analogy:** Think of a `Guard` as a transaction context (like a database transaction or a nested promise chain) that tracks the path of a request so it can roll back or commit changes to the source nodes.
