@@ -1,10 +1,6 @@
-pub mod guard;
-pub mod memory;
-pub mod queue;
-
-use guard::Guard;
-use memory::NeuronField;
-use queue::{EventPacket, EventQueue};
+use neuron_poc::guard::Guard;
+use neuron_poc::memory::NeuronField;
+use neuron_poc::queue::{EventPacket, EventQueue};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;

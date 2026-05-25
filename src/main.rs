@@ -1,10 +1,6 @@
-pub mod guard;
-pub mod memory;
-pub mod queue;
-
-use guard::Guard;
-use memory::NeuronField;
-use queue::{EventPacket, EventQueue};
+use neuron_poc::guard::Guard;
+use neuron_poc::memory::NeuronField;
+use neuron_poc::queue::{EventPacket, EventQueue};
 
 /// Fast-path signal propagation for Run Mode.
 /// This function is designed to be lightning-fast, lock-free, and unidirectional.

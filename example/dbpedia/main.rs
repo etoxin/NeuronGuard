@@ -1,10 +1,6 @@
-pub mod guard;
-pub mod memory;
-pub mod queue;
-
-use guard::Guard;
-use memory::NeuronField;
-use queue::{EventPacket, EventQueue};
+use neuron_poc::guard::Guard;
+use neuron_poc::memory::NeuronField;
+use neuron_poc::queue::{EventPacket, EventQueue};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
@@ -174,7 +170,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             std::ptr::copy_nonoverlapping(
                 bytes.as_ptr(),
                 field.storage as *mut u8,
-                field_size * std::mem::size_of::<memory::GuardedNeuron>(),
+                field_size * std::mem::size_of::<neuron_poc::memory::GuardedNeuron>(),
             );
         }
         println!("Model loaded successfully in < 1ms!\n");
@@ -313,7 +309,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let bytes = unsafe {
             std::slice::from_raw_parts(
                 field.storage as *const u8,
-                field_size * std::mem::size_of::<memory::GuardedNeuron>(),
+                field_size * std::mem::size_of::<neuron_poc::memory::GuardedNeuron>(),
             )
         };
         std::fs::write(weights_file_path, bytes)?;

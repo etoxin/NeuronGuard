@@ -9,13 +9,17 @@ crossbeam-channel = "0.5"
 rand = "0.8"
 csv = "1.1"
 
-[[bin]]
-name = "llm-router"
-path = "example/llm_router/main.rs"
+[lib]
+name = "neuron_poc"
+path = "src/lib.rs"
 
 [[bin]]
 name = "neuron-poc"
 path = "src/main.rs"
+
+[[bin]]
+name = "llm-router"
+path = "example/llm_router/main.rs"
 
 [[bin]]
 name = "ag-news"
