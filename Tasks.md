@@ -9,11 +9,11 @@ We will build this Proof of Concept step-by-step. Each task is broken down with 
 ## 📋 The Master Checklist
 
 ### 🛠️ Setup & Infrastructure
-- [ ] **Task 0: Initialize Cargo Project**
+- [x] **Task 0: Initialize Cargo Project**
   - Create `Cargo.toml` with necessary dependencies (`crossbeam-channel`, `rand`, etc.).
 
 ### 🧠 Phase 1: Bare-Metal Memory & Queue
-- [ ] **Task 1: Implement `src/memory.rs` (The Flat Memory Field)**
+- [x] **Task 1: Implement `src/memory.rs` (The Flat Memory Field)**
   - Define the 16-byte aligned `GuardedNeuron` struct.
   - Implement `NeuronField` using raw pointers and offset arithmetic.
   - **TS Analogy:** Think of this as a `Float32Array` backed by a single shared `SharedArrayBuffer`, where we read/write at exact byte offsets.
