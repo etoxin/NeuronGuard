@@ -68,3 +68,45 @@ impl Drop for NeuronField {
 // and share this struct across threads.
 unsafe impl Send for NeuronField {}
 unsafe impl Sync for NeuronField {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::size_of;
+
+    #[test]
+    fn test_neuron_size_is_exactly_16_bytes() {
+        // This validates Phase 1: Compile-Time Size Enforcement
+        assert_eq!(size_of::<GuardedNeuron>(), 16);
+    }
+
+    #[test]
+    fn test_neuron_field_allocation_and_access() {
+        let field = NeuronField::new(10);
+        assert_eq!(field.size, 10);
+
+        unsafe {
+            let n0 = field.get_neuron(0);
+            n0.potential = 1.23;
+            n0.threshold = 4.56;
+            n0.target_id = 99;
+            n0.weight = 0.88;
+
+            let n0_check = field.get_neuron(0);
+            assert_eq!(n0_check.potential, 1.23);
+            assert_eq!(n0_check.threshold, 4.56);
+            assert_eq!(n0_check.target_id, 99);
+            assert_eq!(n0_check.weight, 0.88);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Neuron ID out of bounds")]
+    fn test_neuron_field_bounds_check() {
+        let field = NeuronField::new(5);
+        unsafe {
+            // This should panic because index 5 is out of bounds for size 5 (indices 0..4)
+            field.get_neuron(5);
+        }
+    }
+}

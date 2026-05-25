@@ -4,3 +4,7 @@ rust = "latest"
 [tasks.run]
 description = "run the app"
 run = "cargo run"
+
+[tasks.test]
+description = "test the app"
+run = "cargo test"
