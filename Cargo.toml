@@ -20,3 +20,7 @@ path = "src/main.rs"
 [[bin]]
 name = "ag-news"
 path = "example/ag_news/main.rs"
+
+[[bin]]
+name = "dbpedia"
+path = "example/dbpedia/main.rs"

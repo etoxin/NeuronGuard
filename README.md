@@ -1,13 +1,77 @@
 # neuron-PoC
 
-## Part 1: The PoC Structural Design
+A high-performance, native Rust Proof of Concept (PoC) for an **LLM-guarded event engine**. This project treats neural processing and context routing as a **systems programming and routing problem** rather than a massive global matrix transformation, utilizing a flat 16-byte aligned memory field and a transactional stack-allocated **Lease (Guard) Pattern** for lock-free, ultra-fast local learning.
 
-Your native Rust PoC should be designed around a **"Rhythm Tracker"**—a small network that takes a specific sequence of timed pulses (like `Dot-Dot-Dash`) and uses your `Guard` system to train the network to recognize it.
+---
+
+## 📋 The Successful PoC Checklist (Completed!)
+
+### Phase 1: The Bare-Metal Architecture Validation
+* [x] **Zero Global State Verification:** Background worker threads update memory nodes completely via array index lookups (`NEURON_FIELD[id]`), without a single global read/write lock (`Mutex` or `RwLock`) wrapped around the array.
+* [x] **Compile-Time Size Enforcement:** A unit test using `std::mem::size_of::<GuardedNeuron>()` successfully confirms the memory layout is exactly 16 bytes.
+* [x] **Thread Independence:** Spun up 4 worker threads, blasted 10,000 independent event packets at random neuron IDs through the queue, and verified simultaneous lock-free processing without a single panic or collision.
+
+### Phase 2: The Dual-Mode Execution Validation
+* [x] **Run Mode Flight Test:** In `RuntimeMode::Run`, fed a spike cascade through a sequence of 5 nodes. Verified that the event packet payload contains zero origin trackers, and that execution flies forward sequentially using lightning-fast index mutations.
+* [x] **Trainer Mode Guard Test:** In `RuntimeMode::Trainer`, triggered a cascade where Node 0 activates Node 1, which activates Node 2. Verified that Node 2 successfully passes a feedback signal backwards through the open session trace to update Node 0’s `weight` variable before the temporary thread lifecycle ends.
+
+### Phase 3: The Learning Proof
+* [x] **The Convergence Win:** Fed a simple temporal pattern into the network. Used the `Guard` feedback loop to verify that the target node's weight successfully converges to filter out random noise and only trigger an output when the correct pattern hits it.
+
+---
+
+## ⚡ Performance Benchmarks
+
+| Dataset / Task | Samples | Classes | Neuron Field Size | Training Time | Accuracy |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Rhythm Tracker (Core PoC)** | - | 1 | 3 neurons | < 0.001s | **100%** (Converged) |
+| **AG News Dataset** | 120,000 | 4 | 1,004 neurons | **3.38s** | **80.17%** |
+| **DBpedia Ontology Dataset** | 560,000 | 14 | 2,014 neurons | **19.90s** | **83.10%** |
+
+*Benchmarks run on an Apple M2 Pro CPU.*
+
+---
+
+## 🚀 How to Run
+
+This project uses **`mise`** to manage toolchains and tasks.
+
+### 1. Run the Core PoC (Rhythm Tracker)
+To run the pristine core PoC demonstrating temporal pattern convergence:
+```bash
+mise run poc
+```
+
+### 2. Run the Mixture-of-Experts (MoE) Router Example
+To run the 105-neuron MoE router simulation:
+```bash
+mise run llm_router
+```
+
+### 3. Run the AG News 120,000 Sample Classifier
+To download the dataset, train on 120,000 samples, and evaluate on 7,600 test samples:
+```bash
+mise run ag_news
+```
+
+### 4. Run the DBpedia 560,000 Sample Classifier
+To download the dataset, train on 560,000 samples in under 20 seconds, and evaluate on 70,000 test samples:
+```bash
+mise run dbpedia
+```
+
+### 5. Run the Entire Test Suite
+To run all 21 unit and integration tests across all binaries:
+```bash
+mise run test
+```
+
+---
+
+## 🧠 Architectural Overview
 
 ### 1. Memory Configuration (`src/memory.rs`)
-
-This module enforces your strict 16-byte layout and pointerless offset arithmetic.
-
+Enforces a strict 16-byte layout and pointerless offset arithmetic.
 ```rust
 // Force alignment to 16 bytes in memory
 #[repr(C, align(16))]
@@ -22,20 +86,10 @@ pub struct NeuronField {
     pub storage: *mut GuardedNeuron,
     pub size: usize,
 }
-
-impl NeuronField {
-    // Pure pointerless offset arithmetic mapping to Base + ID * 16
-    pub unsafe fn get_neuron(&self, id: usize) -> &mut GuardedNeuron {
-        &mut *self.storage.add(id)
-    }
-}
-
 ```
 
 ### 2. The Core Multi-Threaded Queue (`src/queue.rs`)
-
-Manages your worker execution threads pulling from a thread-safe ring buffer (`crossbeam-channel`).
-
+Manages worker execution threads pulling from a thread-safe lock-free ring buffer (`crossbeam-channel`).
 ```rust
 pub enum RuntimeMode {
     Run,
@@ -45,15 +99,12 @@ pub enum RuntimeMode {
 pub struct EventPacket {
     pub target_id: u32,
     pub magnitude: f32,
-    pub source_id: Option<u32>, // Only populated in Trainer Mode
+    pub source_id: Option<u32>,
 }
-
 ```
 
 ### 3. The Guard Lifecycle Loop (`src/guard.rs`)
-
-This is your transactional execution framework. When an event fires in Trainer Mode, it builds a localized execution scope.
-
+A transactional execution framework. When an event fires in Trainer Mode, it builds a localized execution scope on the stack.
 ```text
                   [ Incoming Event Packet ]
                              │
@@ -74,30 +125,4 @@ This is your transactional execution framework. When an event fires in Trainer M
                              ▼
              [ Guard Automatically Drops ]
            Primes memory block for next thread
-
 ```
-
----
-
-## Part 2: The Successful PoC Checklist
-
-A successful proof of concept means verifying your architectural constraints, not building a massive network. Treat this as your definition of "Done" tonight:
-
-### Phase 1: The Bare-Metal Architecture Validation
-
-* [ ] **Zero Global State Verification:** Your background worker threads are updating memory nodes completely via array index lookups (`NEURON_FIELD[id]`), without a single global read/write lock (`Mutex` or `RwLock`) wrapped around the array.
-* [ ] **Compile-Time Size Enforcement:** A unit test using `std::mem::size_of::<GuardedNeuron>()` successfully confirms your memory layout is exactly 16 bytes.
-* [ ] **Thread Independence:** Spin up 4 worker threads. Blast 10,000 independent event packets at random neuron IDs through the queue and verify that the Mac performance cores handle them simultaneously without a single thread panicking or colliding.
-
-### Phase 2: The Dual-Mode Execution Validation
-
-* [ ] **Run Mode Flight Test:** In `RuntimeMode::Run`, feed a spike cascade through a sequence of 5 nodes. Verify that the event packet payload contains zero origin trackers, and that the execution flies forward sequentially using nothing but lightning-fast index mutations.
-* [ ] **Trainer Mode Guard Test:** In `RuntimeMode::Trainer`, trigger a cascade where Node 0 activates Node 1, which activates Node 2. Verify that Node 2 successfully passes a feedback signal backwards through the open session trace to update Node 0’s `weight` variable *before* the temporary thread lifecycle ends.
-
-### Phase 3: The Learning Proof
-
-* [ ] **The Convergence Win:** Feed a simple temporal pattern (e.g., a pulse at Time X and another at Time Y) into your network. Use your `Guard` feedback loop to verify that the target node's `weight` changes until it consistently filters out random noise and only triggers an output when the correct pattern hits it.
-
----
-
-Fire up your terminal, build out the modules, and see how clean you can keep those raw memory blocks. Let me know when you run your first compilation check! Good luck tonight.

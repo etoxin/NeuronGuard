@@ -10,6 +10,9 @@ run = "cargo run --bin llm-router"
 [tasks.ag_news]
 run = "cargo run --bin ag-news"
 
+[tasks.dbpedia]
+run = "cargo run --bin dbpedia"
+
 [tasks.run]
 run = "cargo run"
 
