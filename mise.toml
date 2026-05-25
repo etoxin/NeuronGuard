@@ -7,6 +7,9 @@ run = "cargo run --bin neuron-poc"
 [tasks.llm_router]
 run = "cargo run --bin llm-router"
 
+[tasks.ag_news]
+run = "cargo run --bin ag-news"
+
 [tasks.run]
 run = "cargo run"
 
