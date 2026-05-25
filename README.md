@@ -1,4 +1,4 @@
-# LLM-Guarded Event Engine PoC
+# NeuronGuard
 
 A high-performance, native Rust Proof of Concept (PoC) for an **LLM-guarded event engine**. This project treats neural processing and context routing as a **systems programming and routing problem** rather than a massive global matrix transformation, utilizing a flat 16-byte aligned memory field and a transactional stack-allocated **Lease (Guard) Pattern** for lock-free, ultra-fast local learning.
 
