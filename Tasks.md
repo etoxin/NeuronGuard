@@ -38,10 +38,10 @@ We will build this Proof of Concept step-by-step. Each task is broken down with 
   - Write a Trainer Mode guard test (Node 0 -> Node 1 -> Node 2, verifying backward feedback updates Node 0's weight).
 
 ### 🎯 Phase 3: The Learning Proof (Rhythm Tracker)
-- [ ] **Task 7: Implement the Temporal Rhythm Tracker**
+- [x] **Task 7: Implement the Temporal Rhythm Tracker**
   - Feed a simple temporal pattern (e.g., pulses at specific intervals) into the network.
   - Train the network using the `Guard` feedback loop to filter out random noise and only fire on the correct rhythm.
-- [ ] **Task 8: Phase 3 Validation (The Convergence Win)**
+- [x] **Task 8: Phase 3 Validation (The Convergence Win)**
   - Verify that the target node's weight successfully converges to recognize the target pattern.
 
 ---

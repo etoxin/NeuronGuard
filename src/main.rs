@@ -44,20 +44,27 @@ pub fn propagate_trainer(
         // Allocate temporary Guard scope on the stack
         let current_guard = Guard::new(neuron_id, field, parent_guard);
 
-        // Apply potential
-        neuron.potential += magnitude;
+        // Apply potential multiplied by the incoming weight (if there is a parent)
+        // For the root node, we apply the raw input magnitude.
+        let incoming_signal = if parent_guard.is_some() {
+            let parent_neuron = field.get_neuron(parent_guard.unwrap().neuron_id as usize);
+            magnitude * parent_neuron.weight
+        } else {
+            magnitude
+        };
+
+        neuron.potential += incoming_signal;
 
         // Evaluate threshold
         if neuron.potential >= neuron.threshold {
             let target_id = neuron.target_id;
-            let weight = neuron.weight;
 
             if target_id != 999 && (target_id as usize) < field.size {
                 // Extend the Guard chain recursively
                 propagate_trainer(
                     field,
                     target_id,
-                    weight,
+                    magnitude, // Pass the original magnitude forward
                     Some(&current_guard),
                     feedback_value,
                 );
@@ -71,7 +78,105 @@ pub fn propagate_trainer(
 }
 
 fn main() {
-    println!("Hello, world! Welcome to Rust!");
+    println!("====================================================");
+    println!("🧠 LLM-Guarded Event Engine PoC: Rhythm Tracker 🧠");
+    println!("====================================================\n");
+
+    // Initialize a NeuronField with 3 neurons:
+    // Node 0: Input A (Correct Pattern, targets Node 2)
+    // Node 1: Input B (Noise Pattern, targets Node 2)
+    // Node 2: Detector Node (threshold = 1.0, targets 999)
+    let field = NeuronField::new(3);
+
+    unsafe {
+        let n0 = field.get_neuron(0);
+        n0.potential = 0.0;
+        n0.threshold = 1.0;
+        n0.target_id = 2;
+        n0.weight = 1.5; // Start with weight >= 1.0
+
+        let n1 = field.get_neuron(1);
+        n1.potential = 0.0;
+        n1.threshold = 1.0;
+        n1.target_id = 2;
+        n1.weight = 1.5; // Start with weight >= 1.0 (susceptible to noise)
+
+        let n2 = field.get_neuron(2);
+        n2.potential = 0.0;
+        n2.threshold = 1.0;
+        n2.target_id = 999; // End of chain
+        n2.weight = 0.0;
+    }
+
+    println!("Initial State:");
+    unsafe {
+        println!("  Detector Threshold: 1.0");
+        println!(
+            "  W0 (Input A -> Detector): {:.4}",
+            field.get_neuron(0).weight
+        );
+        println!(
+            "  W1 (Input B -> Detector): {:.4} (Susceptible to Noise)",
+            field.get_neuron(1).weight
+        );
+    }
+    println!("\nGoal: Train the network so that:");
+    println!("  - Input A (Correct Pattern) triggers the Detector.");
+    println!("  - Input B (Noise Pattern) is filtered out (does NOT trigger Detector).");
+    println!("  - This requires W1 to converge to < 1.0, while W0 remains >= 1.0.\n");
+
+    println!("--- Starting Training Loop ---");
+
+    let mut epoch = 0;
+    loop {
+        epoch += 1;
+        // Alternately present Correct Pattern (Input A) and Noise Pattern (Input B)
+        let is_correct_pattern = epoch % 2 == 1;
+
+        if is_correct_pattern {
+            // Correct Pattern: Trigger Input A (Node 0)
+            // If it fires the Detector, we reinforce with positive feedback (+0.05)
+            propagate_trainer(&field, 0, 1.0, None, 0.05);
+        } else {
+            // Noise Pattern: Trigger Input B (Node 1)
+            // If it fires the Detector, this is a false positive! We penalize with negative feedback (-0.20)
+            propagate_trainer(&field, 1, 1.0, None, -0.20);
+        }
+
+        unsafe {
+            let w0 = field.get_neuron(0).weight;
+            let w1 = field.get_neuron(1).weight;
+            println!(
+                "Epoch {:02}: Pattern = {}, W0 = {:.4}, W1 = {:.4}",
+                epoch,
+                if is_correct_pattern {
+                    "Correct (Input A)"
+                } else {
+                    "Noise   (Input B)"
+                },
+                w0,
+                w1
+            );
+
+            // Convergence check:
+            // W0 must be >= 1.0 (to trigger Detector)
+            // W1 must be < 1.0 (to NOT trigger Detector)
+            if w0 >= 1.0 && w1 < 1.0 {
+                println!("\n🎉 Convergence Win! 🎉");
+                println!("The network successfully learned to filter out noise!");
+                println!("Final Weights:");
+                println!("  W0 (Input A -> Detector): {:.4}", w0);
+                println!("  W1 (Input B -> Detector): {:.4}", w1);
+                break;
+            }
+        }
+
+        if epoch >= 50 {
+            println!("\nTraining stopped after 50 epochs.");
+            break;
+        }
+    }
+    println!("====================================================");
 }
 
 #[cfg(test)]
@@ -168,5 +273,53 @@ mod tests {
             assert_eq!(field.get_neuron(1).potential, 0.0);
             assert_eq!(field.get_neuron(2).potential, 0.0);
         }
+    }
+
+    #[test]
+    fn test_rhythm_tracker_convergence() {
+        // Phase 3 Checklist: The Convergence Win
+        // Verify that the target node's weight changes until it consistently filters out noise.
+        let field = NeuronField::new(3);
+
+        unsafe {
+            let n0 = field.get_neuron(0);
+            n0.potential = 0.0;
+            n0.threshold = 1.0;
+            n0.target_id = 2;
+            n0.weight = 1.5;
+
+            let n1 = field.get_neuron(1);
+            n1.potential = 0.0;
+            n1.threshold = 1.0;
+            n1.target_id = 2;
+            n1.weight = 1.5;
+
+            let n2 = field.get_neuron(2);
+            n2.potential = 0.0;
+            n2.threshold = 1.0;
+            n2.target_id = 999;
+            n2.weight = 0.0;
+        }
+
+        let mut converged = false;
+        for epoch in 1..=50 {
+            let is_correct_pattern = epoch % 2 == 1;
+            if is_correct_pattern {
+                propagate_trainer(&field, 0, 1.0, None, 0.05);
+            } else {
+                propagate_trainer(&field, 1, 1.0, None, -0.20);
+            }
+
+            unsafe {
+                let w0 = field.get_neuron(0).weight;
+                let w1 = field.get_neuron(1).weight;
+                if w0 >= 1.0 && w1 < 1.0 {
+                    converged = true;
+                    break;
+                }
+            }
+        }
+
+        assert!(converged, "Failed to converge within 50 epochs");
     }
 }
