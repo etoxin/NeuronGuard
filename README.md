@@ -6,7 +6,7 @@ A high-performance, native Rust spiking neural network (SNN) designed for lock-f
 
 ## Summary
 
-**NeuronGuard** is built around a flat, 16-byte aligned memory field and a transactional, stack-allocated **Lease (Guard) Pattern** to achieve ultra-fast local learning and inference with zero global locks.
+The **NeuronGuard** proof of concept is built around a flat, 16-byte aligned memory field and a transactional, stack-allocated **Lease (Guard) Pattern** to achieve ultra-fast local learning and inference with zero global locks.
 
 ### Key Architectural Achievements:
 * **Zero Global State Concurrency**: Background worker threads update memory nodes completely via array index lookups without a single global read/write lock (`Mutex` or `RwLock`), achieving true multi-core parallelism.
