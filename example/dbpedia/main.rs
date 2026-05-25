@@ -7,6 +7,9 @@ use memory::NeuronField;
 use queue::{EventPacket, EventQueue};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::fs::File;
+use std::io::{self, Write};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DBpediaCategory {
@@ -37,19 +40,19 @@ impl DBpediaCategory {
     pub fn name(&self) -> &'static str {
         match self {
             DBpediaCategory::Company => "Company",
-            DBpediaCategory::EducationalInstitution => "EducationalInstitution",
+            DBpediaCategory::EducationalInstitution => "Educational Institution",
             DBpediaCategory::Artist => "Artist",
             DBpediaCategory::Athlete => "Athlete",
-            DBpediaCategory::OfficeHolder => "OfficeHolder",
-            DBpediaCategory::MeanOfTransportation => "MeanOfTransportation",
+            DBpediaCategory::OfficeHolder => "Office Holder",
+            DBpediaCategory::MeanOfTransportation => "Mean of Transportation",
             DBpediaCategory::Building => "Building",
-            DBpediaCategory::NaturalPlace => "NaturalPlace",
+            DBpediaCategory::NaturalPlace => "Natural Place",
             DBpediaCategory::Village => "Village",
             DBpediaCategory::Animal => "Animal",
             DBpediaCategory::Plant => "Plant",
             DBpediaCategory::Album => "Album",
             DBpediaCategory::Film => "Film",
-            DBpediaCategory::WrittenWork => "WrittenWork",
+            DBpediaCategory::WrittenWork => "Written Work",
         }
     }
 }
@@ -127,187 +130,233 @@ fn tokenize(text: &str) -> Vec<String> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("====================================================================");
-    println!("📚 DBpedia 560,000 Ontology Dataset Classification PoC 📚");
+    println!("📚 DBpedia Ontology Interactive CLI Tool 📚");
     println!("====================================================================\n");
 
     // Define a set of common stop words to exclude from our vocabulary
     let stop_words: HashSet<&str> = [
         "the", "a", "and", "of", "to", "in", "on", "for", "with", "at", "by", "an", "be", "is",
         "are", "was", "were", "it", "that", "this", "from", "as", "at", "but", "not", "or", "will",
-        "has", "have", "its", "his", "her", "their", "they", "who", "which", "which", "also",
-        "been", "by", "an", "about",
+        "has", "have", "its", "his", "her", "their", "they", "who", "which", "also", "been", "by",
+        "an", "about",
     ]
     .iter()
     .cloned()
     .collect();
 
-    println!("--- Step 1: Building Vocabulary from 560,000 Training Samples ---");
     let train_file_path = "example/dbpedia/dbpedia_csv/train.csv";
-    let mut rdr = csv::Reader::from_path(train_file_path)?;
+    let weights_file_path = "example/dbpedia/dbpedia_weights.bin";
+    let vocab_file_path = "example/dbpedia/dbpedia_vocab.txt";
 
-    // Count word frequencies per category to build a discriminative vocabulary
-    let mut word_counts: HashMap<String, [u32; 14]> = HashMap::new();
-
-    for result in rdr.records() {
-        let record = result?;
-        let class_index: u32 = record[0].parse()?;
-        let cat_idx = class_index - 1; // 0-based category index
-        let title = &record[1];
-        let description = &record[2];
-
-        let full_text = format!("{} {}", title, description);
-        let tokens = tokenize(&full_text);
-
-        for token in tokens {
-            if token.len() > 2 && !stop_words.contains(token.as_str()) {
-                let counts = word_counts.entry(token).or_insert([0; 14]);
-                counts[cat_idx as usize] += 1;
-            }
-        }
-    }
-
-    // Sort words by total frequency and keep the top 2,000 most frequent words
-    let mut word_list: Vec<(String, [u32; 14], u32)> = word_counts
-        .into_iter()
-        .map(|(word, counts)| {
-            let total_count: u32 = counts.iter().sum();
-            (word, counts, total_count)
-        })
-        .collect();
-
-    word_list.sort_by(|a, b| b.2.cmp(&a.2)); // Sort descending
     let vocab_size = 2000;
-    let final_vocab: Vec<(String, [u32; 14])> = word_list
-        .into_iter()
-        .take(vocab_size)
-        .map(|(word, counts, _)| (word, counts))
-        .collect();
-
-    // Map words to their index in the vocabulary
-    let vocab_map: HashMap<String, usize> = final_vocab
-        .iter()
-        .enumerate()
-        .map(|(idx, (word, _))| (word.clone(), idx))
-        .collect();
-
-    let num_words = final_vocab.len();
     let num_experts = 14;
-    let field_size = num_words + num_experts; // 2014 neurons
+    let field_size = vocab_size + num_experts; // 2014 neurons
 
-    println!("Vocabulary built successfully!");
-    println!("  Top 2,000 most frequent words selected.");
-    println!("  Total Neuron Field Size: {} neurons\n", field_size);
+    let mut vocab_map: HashMap<String, usize> = HashMap::new();
+    let mut vocab_list: Vec<String> = Vec::new();
 
-    // 3. Initialize the NeuronField
+    // 1. Check if we can load pre-trained weights and vocabulary
     let field = NeuronField::new(field_size);
 
-    // Configure word neurons to target their respective experts (2000..2014)
-    // Each word targets the expert (category) in which it occurs most frequently!
-    unsafe {
-        for i in 0..num_words {
-            let n = field.get_neuron(i);
-            n.potential = 0.0;
-            n.threshold = 1.0;
+    if Path::new(weights_file_path).exists() && Path::new(vocab_file_path).exists() {
+        println!("Loading pre-trained model weights and vocabulary...");
 
-            // Find the category with the highest frequency for this word
-            let counts = final_vocab[i].1;
-            let mut max_idx = 0;
-            let mut max_val = 0;
-            for (idx, &val) in counts.iter().enumerate() {
-                if val > max_val {
-                    max_val = val;
-                    max_idx = idx;
-                }
-            }
-
-            n.target_id = (num_words + max_idx) as u32;
-            n.weight = 1.5; // Start with high weight (susceptible to noise)
+        // Load vocabulary
+        let vocab_content = std::fs::read_to_string(vocab_file_path)?;
+        for (idx, line) in vocab_content.lines().enumerate() {
+            vocab_map.insert(line.to_string(), idx);
+            vocab_list.push(line.to_string());
         }
 
-        // Configure Expert neurons (2000..2014)
-        for i in num_words..field_size {
-            let n = field.get_neuron(i);
-            n.potential = 0.0;
-            n.threshold = 1.0;
-            n.target_id = 999; // End of chain
-            n.weight = 0.0;
+        // Load raw memory weights
+        let bytes = std::fs::read(weights_file_path)?;
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                field.storage as *mut u8,
+                field_size * std::mem::size_of::<memory::GuardedNeuron>(),
+            );
         }
-    }
+        println!("Model loaded successfully in < 1ms!\n");
+    } else {
+        println!("Pre-trained model not found. Starting training on 560,000 samples...");
+        println!("(This will take about 20 seconds and will save the weights for instant future startups)\n");
 
-    println!("--- Step 2: Training on 560,000 Samples (Trainer Mode) ---");
-    println!("Applying the Guard feedback loop over the entire dataset...");
+        if !Path::new(train_file_path).exists() {
+            println!("Error: Training dataset not found!");
+            println!("Please run 'mise run download_data' first to download the dataset.");
+            return Ok(());
+        }
 
-    let start_time = std::time::Instant::now();
-    let mut rdr = csv::Reader::from_path(train_file_path)?;
-    let mut sample_count = 0;
+        println!("--- Step 1: Building Vocabulary from 560,000 Training Samples ---");
+        let mut rdr = csv::Reader::from_path(train_file_path)?;
+        let mut word_counts: HashMap<String, [u32; 14]> = HashMap::new();
 
-    for result in rdr.records() {
-        let record = result?;
-        let class_index: u32 = record[0].parse()?;
-        let category = DBpediaCategory::from_class_index(class_index);
-        let title = &record[1];
-        let description = &record[2];
+        for result in rdr.records() {
+            let record = result?;
+            let class_index: u32 = record[0].parse()?;
+            let cat_idx = class_index - 1;
+            let title = &record[1];
+            let description = &record[2];
 
-        let full_text = format!("{} {}", title, description);
-        let tokens = tokenize(&full_text);
+            let full_text = format!("{} {}", title, description);
+            let tokens = tokenize(&full_text);
 
-        for token in tokens {
-            if let Some(&word_idx) = vocab_map.get(&token) {
-                unsafe {
-                    let word_neuron = field.get_neuron(word_idx);
-                    let target_expert = word_neuron.target_id - num_words as u32;
-
-                    // Positive feedback if correct expert, negative if incorrect
-                    let feedback = if target_expert == category as u32 {
-                        0.05
-                    } else {
-                        -0.15
-                    };
-
-                    propagate_trainer(&field, word_idx as u32, 1.0, None, feedback);
+            for token in tokens {
+                if token.len() > 2 && !stop_words.contains(token.as_str()) {
+                    let counts = word_counts.entry(token).or_insert([0; 14]);
+                    counts[cat_idx as usize] += 1;
                 }
             }
         }
 
-        sample_count += 1;
-        if sample_count % 100000 == 0 {
-            println!("  Processed {}/560,000 samples...", sample_count);
+        let mut word_list: Vec<(String, [u32; 14], u32)> = word_counts
+            .into_iter()
+            .map(|(word, counts)| {
+                let total_count: u32 = counts.iter().sum();
+                (word, counts, total_count)
+            })
+            .collect();
+
+        word_list.sort_by(|a, b| b.2.cmp(&a.2));
+        let final_vocab: Vec<(String, [u32; 14])> = word_list
+            .into_iter()
+            .take(vocab_size)
+            .map(|(word, counts, _)| (word, counts))
+            .collect();
+
+        // Save vocabulary to disk
+        let mut vocab_file = File::create(vocab_file_path)?;
+        for (word, _) in &final_vocab {
+            writeln!(vocab_file, "{}", word)?;
         }
+
+        // Load into memory maps
+        for (idx, (word, _)) in final_vocab.iter().enumerate() {
+            vocab_map.insert(word.clone(), idx);
+            vocab_list.push(word.clone());
+        }
+
+        // Configure word neurons
+        unsafe {
+            for i in 0..vocab_size {
+                let n = field.get_neuron(i);
+                n.potential = 0.0;
+                n.threshold = 1.0;
+
+                let counts = final_vocab[i].1;
+                let mut max_idx = 0;
+                let mut max_val = 0;
+                for (idx, &val) in counts.iter().enumerate() {
+                    if val > max_val {
+                        max_val = val;
+                        max_idx = idx;
+                    }
+                }
+
+                n.target_id = (vocab_size + max_idx) as u32;
+                n.weight = 1.5;
+            }
+
+            for i in vocab_size..field_size {
+                let n = field.get_neuron(i);
+                n.potential = 0.0;
+                n.threshold = 1.0;
+                n.target_id = 999;
+                n.weight = 0.0;
+            }
+        }
+
+        println!("--- Step 2: Training on 560,000 Samples (Trainer Mode) ---");
+        let start_time = std::time::Instant::now();
+        let mut rdr = csv::Reader::from_path(train_file_path)?;
+        let mut sample_count = 0;
+
+        for result in rdr.records() {
+            let record = result?;
+            let class_index: u32 = record[0].parse()?;
+            let category = DBpediaCategory::from_class_index(class_index);
+            let title = &record[1];
+            let description = &record[2];
+
+            let full_text = format!("{} {}", title, description);
+            let tokens = tokenize(&full_text);
+
+            for token in tokens {
+                if let Some(&word_idx) = vocab_map.get(&token) {
+                    unsafe {
+                        let word_neuron = field.get_neuron(word_idx);
+                        let target_expert = word_neuron.target_id - vocab_size as u32;
+
+                        let feedback = if target_expert == category as u32 {
+                            0.05
+                        } else {
+                            -0.15
+                        };
+
+                        propagate_trainer(&field, word_idx as u32, 1.0, None, feedback);
+                    }
+                }
+            }
+
+            sample_count += 1;
+            if sample_count % 100000 == 0 {
+                println!("  Processed {}/560,000 samples...", sample_count);
+            }
+        }
+
+        let duration = start_time.elapsed();
+        println!("Training completed in {:.2?}!", duration);
+
+        // Save raw memory weights to disk (Pointerless serialization!)
+        println!("Saving model weights to disk for instant future startups...");
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                field.storage as *const u8,
+                field_size * std::mem::size_of::<memory::GuardedNeuron>(),
+            )
+        };
+        std::fs::write(weights_file_path, bytes)?;
+        println!("Model saved successfully!\n");
     }
 
-    let duration = start_time.elapsed();
-    println!("Training completed in {:.2?}!", duration);
+    // 2. Interactive CLI Loop
+    println!("--------------------------------------------------------------------");
+    println!("Type any sentence or description below to classify it.");
+    println!("The engine will route the context to the 14 experts in real-time.");
+    println!("Type 'exit' or 'quit' to close the tool.");
+    println!("--------------------------------------------------------------------\n");
 
-    println!("\n--- Step 3: Evaluating on 70,000 Test Samples (Run Mode) ---");
-    let test_file_path = "example/dbpedia/dbpedia_csv/test.csv";
-    let mut rdr = csv::Reader::from_path(test_file_path)?;
+    let mut input = String::new();
+    loop {
+        print!("👉 Enter text: ");
+        io::stdout().flush()?;
+        input.clear();
+        io::stdin().read_line(&mut input)?;
 
-    let mut correct_predictions = 0;
-    let mut total_predictions = 0;
+        let trimmed = input.trim();
+        if trimmed == "exit" || trimmed == "quit" {
+            break;
+        }
 
-    // Confusion matrix: [Actual][Predicted]
-    let mut confusion_matrix = vec![vec![0u32; 14]; 14];
+        if trimmed.is_empty() {
+            continue;
+        }
 
-    for result in rdr.records() {
-        let record = result?;
-        let class_index: u32 = record[0].parse()?;
-        let actual_category = DBpediaCategory::from_class_index(class_index);
-        let title = &record[1];
-        let description = &record[2];
-
-        let full_text = format!("{} {}", title, description);
-        let tokens = tokenize(&full_text);
+        let tokens = tokenize(trimmed);
 
         // Reset expert potentials
         unsafe {
-            for i in num_words..field_size {
+            for i in vocab_size..field_size {
                 field.get_neuron(i).potential = 0.0;
             }
         }
 
         // Present each word in Run Mode
-        for token in tokens {
-            if let Some(&word_idx) = vocab_map.get(&token) {
+        let mut recognized_words = Vec::new();
+        for token in &tokens {
+            if let Some(&word_idx) = vocab_map.get(token) {
+                recognized_words.push(token.clone());
                 unsafe {
                     let word_neuron = field.get_neuron(word_idx);
                     let target_expert = word_neuron.target_id;
@@ -317,60 +366,48 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // Determine which expert has the highest potential
+        if recognized_words.is_empty() {
+            println!("  ⚠️  None of the words were recognized in the 2,000-word vocabulary.");
+            println!("      Try using more general descriptive words!\n");
+            continue;
+        }
+
+        println!("  Recognized Vocab: {:?}", recognized_words);
+        println!("  Expert Activations:");
+
+        // Find the winning expert
         let mut predicted_idx = 0;
         let mut max_potential = -1.0;
         unsafe {
             for idx in 0..14 {
-                let p = field.get_neuron(num_words + idx).potential;
+                let p = field.get_neuron(vocab_size + idx).potential;
                 if p > max_potential {
                     max_potential = p;
                     predicted_idx = idx;
                 }
+
+                let cat = DBpediaCategory::from_class_index((idx + 1) as u32);
+                let mut cat_name = cat.name().to_string();
+                if cat_name.len() > 22 {
+                    cat_name.truncate(22);
+                }
+                println!(
+                    "    [{:22}]: {:.2} {}",
+                    cat_name,
+                    p,
+                    "*".repeat((p * 10.0) as usize)
+                );
             }
         }
 
-        let actual_idx = actual_category as usize;
-        confusion_matrix[actual_idx][predicted_idx] += 1;
-
-        if predicted_idx == actual_idx {
-            correct_predictions += 1;
-        }
-        total_predictions += 1;
+        let winner = DBpediaCategory::from_class_index((predicted_idx + 1) as u32);
+        println!(
+            "\n  🏆 Winning Category: **{}** 🏆\n",
+            winner.name().to_string().to_uppercase()
+        );
+        println!("--------------------------------------------------------------------");
     }
 
-    let accuracy = (correct_predictions as f32 / total_predictions as f32) * 100.0;
-    println!("Evaluation Complete!");
-    println!(
-        "  Accuracy: {:.2}% ({}/{})",
-        accuracy, correct_predictions, total_predictions
-    );
-
-    println!("\n--- Confusion Matrix ---");
-    print!("  Actual \\ Predicted");
-    for i in 0..14 {
-        print!(" | C{:02}", i + 1);
-    }
-    println!();
-    println!("  -------------------|----|----|----|----|----|----|----|----|----|----|----|----|----|----");
-    for i in 0..14 {
-        let cat = DBpediaCategory::from_class_index((i + 1) as u32);
-        let mut cat_name = cat.name().to_string();
-        if cat_name.len() > 17 {
-            cat_name.truncate(17);
-        }
-        print!("  {:17} |", cat_name);
-        for j in 0..14 {
-            print!(" {:2} |", confusion_matrix[i][j]);
-        }
-        println!();
-    }
-    println!("\nLegend:");
-    for i in 0..14 {
-        let cat = DBpediaCategory::from_class_index((i + 1) as u32);
-        println!("  C{:02}: {}", i + 1, cat.name());
-    }
-    println!("====================================================================");
-
+    println!("\nThank you for using the DBpedia Ontology CLI Tool! Goodbye!");
     Ok(())
 }
