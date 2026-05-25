@@ -36,7 +36,7 @@ PyTorch     ██████████████████████�
 
 ---
 
-## How to Run
+## How to Run PoC
 
 This project uses **`mise`** to manage toolchains and tasks.
 
