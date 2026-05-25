@@ -1,10 +1,14 @@
 [tools]
 rust = "latest"
 
+[tasks.poc]
+run = "cargo run --bin neuron-poc"
+
+[tasks.llm_router]
+run = "cargo run --bin llm-router"
+
 [tasks.run]
-description = "run the app"
 run = "cargo run"
 
 [tasks.test]
-description = "test the app"
 run = "cargo test"

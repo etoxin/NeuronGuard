@@ -2,7 +2,16 @@
 name = "neuron-poc"
 version = "0.1.0"
 edition = "2021"
+default-run = "llm-router"
 
 [dependencies]
 crossbeam-channel = "0.5"
 rand = "0.8"
+
+[[bin]]
+name = "llm-router"
+path = "example/llm_router/main.rs"
+
+[[bin]]
+name = "neuron-poc"
+path = "src/main.rs"
