@@ -36,6 +36,12 @@ A high-performance, native Rust Proof of Concept (PoC) for an **LLM-guarded even
 
 This project uses **`mise`** to manage toolchains and tasks.
 
+### 0. Download the Datasets
+Before running the AG News or DBpedia classifiers, download and extract the datasets:
+```bash
+mise run download_data
+```
+
 ### 1. Run the Core PoC (Rhythm Tracker)
 To run the pristine core PoC demonstrating temporal pattern convergence:
 ```bash

@@ -1,6 +1,18 @@
 [tools]
 rust = "latest"
 
+[tasks.download_data]
+description = "Download and extract AG News and DBpedia datasets"
+run = """
+mkdir -p example/ag_news/data
+curl -s -o example/ag_news/data/train.csv https://raw.githubusercontent.com/mhjabreel/CharCnn_Keras/master/data/ag_news_csv/train.csv
+curl -s -o example/ag_news/data/test.csv https://raw.githubusercontent.com/mhjabreel/CharCnn_Keras/master/data/ag_news_csv/test.csv
+mkdir -p example/dbpedia
+curl -s -o example/dbpedia/dbpedia_csv.tgz https://s3.amazonaws.com/fast-ai-nlp/dbpedia_csv.tgz
+tar -xzf example/dbpedia/dbpedia_csv.tgz -C example/dbpedia/
+rm example/dbpedia/dbpedia_csv.tgz
+"""
+
 [tasks.poc]
 run = "cargo run --bin neuron-poc"
 
