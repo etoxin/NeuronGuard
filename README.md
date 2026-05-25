@@ -132,3 +132,11 @@ A transactional execution framework. When an event fires in Trainer Mode, it bui
              [ Guard Automatically Drops ]
            Primes memory block for next thread
 ```
+
+---
+
+## 📄 License
+
+This project is licensed under the **GNU General Public License v3 (GPL v3)**. 
+
+Under this license, you are free to copy, modify, and distribute this software, but any derivative works or commercial products utilizing this code must also be open-sourced under the GPL v3. For commercial, closed-source licensing inquiries, please contact the repository owner. See the [LICENSE](LICENSE) file for the full license text.
