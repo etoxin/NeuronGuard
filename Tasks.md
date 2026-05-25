@@ -30,10 +30,10 @@ We will build this Proof of Concept step-by-step. Each task is broken down with 
   - Create the `Guard` struct that represents an active execution scope.
   - Implement the forward propagation and backward feedback trace.
   - **TS Analogy:** Think of a `Guard` as a transaction context (like a database transaction or a nested promise chain) that tracks the path of a request so it can roll back or commit changes to the source nodes.
-- [ ] **Task 5: Implement Run Mode & Trainer Mode in `src/main.rs`**
+- [x] **Task 5: Implement Run Mode & Trainer Mode in `src/main.rs`**
   - Implement the fast-path execution for `RuntimeMode::Run` (zero tracking overhead).
   - Implement the guarded execution for `RuntimeMode::Trainer` (tracking active pathways).
-- [ ] **Task 6: Phase 2 Validation (Tests)**
+- [x] **Task 6: Phase 2 Validation (Tests)**
   - Write a Run Mode flight test (5-node cascade, zero origin trackers).
   - Write a Trainer Mode guard test (Node 0 -> Node 1 -> Node 2, verifying backward feedback updates Node 0's weight).
 
