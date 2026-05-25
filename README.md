@@ -137,6 +137,40 @@ A transactional execution framework. When an event fires in Trainer Mode, it bui
            Primes memory block for next thread
 ```
 
+# AG News Example Output
+
+```text
+====================================================================
+📰 AG News 120,000 Dataset Classification PoC 📰
+====================================================================
+
+--- Step 1: Building Vocabulary from 120,000 Training Samples ---
+Vocabulary built successfully!
+  Top 1,000 most frequent words selected.
+  Total Neuron Field Size: 1004 neurons
+
+--- Step 2: Training on 120,000 Samples (Trainer Mode) ---
+Applying the Guard feedback loop over the entire dataset...
+  Processed 30000/120,000 samples...
+  Processed 60000/120,000 samples...
+  Processed 90000/120,000 samples...
+Training completed in 3.32s!
+
+--- Step 3: Evaluating on 7,600 Test Samples (Run Mode) ---
+Evaluation Complete!
+  Accuracy: 80.17% (6092/7599)
+
+--- Confusion Matrix ---
+  Actual \ Predicted | World | Sports | Business | Sci/Tech
+  -------------------|-------|--------|----------|---------
+  World News         |  1518 |    163 |      147 |       72
+  Sports             |    61 |   1724 |       56 |       59
+  Business           |   139 |    110 |     1400 |      250
+  Sci/Tech           |   108 |    116 |      226 |     1450
+====================================================================
+```
+
+
 ---
 
 ## License
