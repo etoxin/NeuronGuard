@@ -1,0 +1,7 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks.run]
+description = "Run the NeuronGuard Pure Python Online Expression Cloner & Detector"
+run = "uv run --no-project python main.py"

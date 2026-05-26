@@ -78,6 +78,15 @@ mise run dbpedia
 # Run the PyTorch vs NeuronGuard DBpedia Benchmark
 mise run dbpedia_benchmark
 
+# Run the Real Amazon 3,000,000 Ingestion Benchmark
+mise run giant_dataset
+
+# Run the PyTorch vs NeuronGuard 3M Giant Benchmark
+mise run giant_dataset_benchmark
+
+# Run the Pure Python Static Expression & Gesture Cloner
+mise run expression_cloner
+
 # Run Rust unit tests
 mise run test
 

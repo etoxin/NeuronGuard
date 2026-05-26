@@ -46,6 +46,18 @@ run = "uv run --no-project python example/dbpedia/main.py"
 description = "Run the PyTorch vs NeuronGuard DBpedia benchmark"
 run = "uv run --no-project python example/dbpedia/pytorch_benchmark.py"
 
+[tasks.giant_dataset]
+description = "Run the Real Amazon 3,000,000 Ingestion Benchmark"
+run = "uv run --no-project python example/giant_dataset/main.py"
+
+[tasks.giant_dataset_benchmark]
+description = "Run the PyTorch vs NeuronGuard 3M Giant Benchmark"
+run = "uv run --no-project python example/giant_dataset/pytorch_benchmark.py"
+
+[tasks.expression_cloner]
+description = "Run the NeuronGuard Pure Python Online Expression Cloner & Detector"
+run = "uv run --no-project python example/expression_cloner/main.py"
+
 [tasks.run]
 run = "cargo run"
 
@@ -59,7 +71,7 @@ run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test"
 
 [tasks.py-setup]
 description = "Set up the Python virtual environment using uv"
-run = "uv venv && uv pip install maturin tiktoken"
+run = "uv venv && uv pip install maturin tiktoken datasets opencv-python"
 
 [tasks.py-build]
 description = "Build and install the Python extension using uv and maturin"
