@@ -1,5 +1,7 @@
 [tools]
 rust = "latest"
+python = "3.12"
+uv = "latest"
 
 [tasks.download_data]
 description = "Download and extract AG News and DBpedia datasets"
@@ -28,8 +30,25 @@ run = "cargo run --bin dbpedia"
 [tasks.run]
 run = "cargo run"
 
+[tasks.build]
+description = "Build the Rust library and binaries"
+run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo build"
+
 [tasks.test]
-run = "cargo test"
+description = "Run all Rust unit tests"
+run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test"
+
+[tasks.py-setup]
+description = "Set up the Python virtual environment using uv"
+run = "uv venv && uv pip install maturin"
+
+[tasks.py-build]
+description = "Build and install the Python extension using uv and maturin"
+run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 uv run --no-project maturin develop --release --features extension-module"
+
+[tasks.py-test]
+description = "Run the Python verification script"
+run = "uv run --no-project python verify.py"
 
 [tasks.clean_models]
 description = "Clean up old pre-trained models and vocab files"
