@@ -383,8 +383,7 @@ def main():
             cat_name = DBpediaCategory.name(idx)
             if len(cat_name) > 22:
                 cat_name = cat_name[:22]
-            bar_len = max(0, p)
-            print(f"    [{cat_name:22}]: {p:3} {'*' * bar_len}")
+            print(f"    [{cat_name:22}]: {p:3}")
 
         winner = DBpediaCategory.name(predicted_idx)
         print(f"\n  🏆 Winning Category: **{winner.upper()}** 🏆\n")
