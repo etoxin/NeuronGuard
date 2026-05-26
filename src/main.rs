@@ -12,80 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use neuron_poc::guard::Guard;
 use neuron_poc::memory::NeuronField;
-use neuron_poc::queue::{EventPacket, EventQueue};
-
-/// Fast-path signal propagation for Run Mode.
-/// This function is designed to be lightning-fast, lock-free, and unidirectional.
-pub fn propagate_run(field: &NeuronField, queue: &EventQueue, packet: EventPacket) {
-    unsafe {
-        let neuron = field.get_neuron(packet.target_id as usize);
-        neuron.potential += packet.magnitude;
-
-        if neuron.potential >= neuron.threshold {
-            neuron.potential = 0.0; // Reset potential on fire
-
-            // Only propagate if there is a valid target
-            if neuron.target_id != 999 && (neuron.target_id as usize) < field.size {
-                let next_packet = EventPacket {
-                    target_id: neuron.target_id,
-                    magnitude: neuron.weight,
-                    source_id: None, // Zero origin tracking in Run Mode
-                };
-                queue.push(next_packet);
-            }
-        }
-    }
-}
-
-/// Transactional signal propagation for Trainer Mode.
-/// This function runs synchronously on a single thread's stack, building a chain of Guards.
-pub fn propagate_trainer(
-    field: &NeuronField,
-    neuron_id: u32,
-    magnitude: f32,
-    parent_guard: Option<&Guard>,
-    feedback_value: f32,
-) {
-    unsafe {
-        let neuron = field.get_neuron(neuron_id as usize);
-
-        // Allocate temporary Guard scope on the stack
-        let current_guard = Guard::new(neuron_id, field, parent_guard);
-
-        // Apply potential multiplied by the incoming weight (if there is a parent)
-        // For the root node, we apply the raw input magnitude.
-        let incoming_signal = if parent_guard.is_some() {
-            let parent_neuron = field.get_neuron(parent_guard.unwrap().neuron_id as usize);
-            magnitude * parent_neuron.weight
-        } else {
-            magnitude
-        };
-
-        neuron.potential += incoming_signal;
-
-        // Evaluate threshold
-        if neuron.potential >= neuron.threshold {
-            let target_id = neuron.target_id;
-
-            if target_id != 999 && (target_id as usize) < field.size {
-                // Extend the Guard chain recursively
-                propagate_trainer(
-                    field,
-                    target_id,
-                    magnitude, // Pass the original magnitude forward
-                    Some(&current_guard),
-                    feedback_value,
-                );
-            } else {
-                // Reached the end of the cascade! Evaluate outcome and propagate feedback backwards.
-                current_guard.propagate_feedback(feedback_value);
-            }
-        }
-        // current_guard automatically drops here, resetting potential to 0.0
-    }
-}
+use neuron_poc::train::propagate_trainer;
 
 fn main() {
     println!("====================================================");
@@ -192,6 +120,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use neuron_poc::queue::{EventPacket, EventQueue};
+    use neuron_poc::run::propagate_run;
 
     #[test]
     fn test_run_mode_flight() {

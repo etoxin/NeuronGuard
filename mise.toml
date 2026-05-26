@@ -30,3 +30,7 @@ run = "cargo run"
 
 [tasks.test]
 run = "cargo test"
+
+[tasks.clean_models]
+description = "Clean up old pre-trained models and vocab files"
+run = "rm -f example/dbpedia/dbpedia_weights.bin example/dbpedia/dbpedia_vocab.txt"
