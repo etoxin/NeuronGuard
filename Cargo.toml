@@ -1,5 +1,5 @@
 [package]
-name = "neuron-poc"
+name = "neuronguard"
 version = "0.1.0"
 edition = "2021"
 default-run = "llm-router"
@@ -8,10 +8,15 @@ default-run = "llm-router"
 crossbeam-channel = "0.5"
 rand = "0.8"
 csv = "1.1"
+pyo3 = { version = "0.21", features = ["experimental-declarative-modules"] }
+
+[features]
+extension-module = ["pyo3/extension-module"]
 
 [lib]
-name = "neuron_poc"
+name = "neuronguard"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "neuron-poc"

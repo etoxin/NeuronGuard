@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use neuron_poc::neuron_guard::{ParallelRouter, ThreadBoundedNeuronField};
-use neuron_poc::train::train_neuron_connection;
+use neuronguard::neuron_guard::{ParallelRouter, ThreadBoundedNeuronField};
+use neuronguard::train::train_neuron_connection;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::sync::atomic::{AtomicI32, Ordering};

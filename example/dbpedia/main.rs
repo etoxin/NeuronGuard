@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use neuron_poc::neuron_guard::{ThreadBoundedNeuron, ThreadBoundedNeuronField};
-use neuron_poc::run::{evaluate_neuron_potentials, tokenize};
-use neuron_poc::train::train_neuron_connection;
+use neuronguard::neuron_guard::{ThreadBoundedNeuron, ThreadBoundedNeuronField};
+use neuronguard::run::{evaluate_neuron_potentials, tokenize};
+use neuronguard::train::train_neuron_connection;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
