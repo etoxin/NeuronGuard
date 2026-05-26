@@ -54,6 +54,9 @@ mise run getting_started
 # Run the Advanced Multi-Threaded Simulation
 mise run advanced
 
+# Run the High-Frequency Financial Fraud Scanner
+mise run fraud_scanner
+
 # Run Rust unit tests
 mise run test
 
