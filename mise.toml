@@ -22,10 +22,10 @@ run = "cargo run --bin neuron-poc"
 run = "cargo run --bin llm-router"
 
 [tasks.ag_news]
-run = "cargo run --bin ag-news"
+run = "uv run --no-project python example/ag_news/main.py"
 
 [tasks.dbpedia]
-run = "cargo run --bin dbpedia"
+run = "uv run --no-project python example/dbpedia/main.py"
 
 [tasks.run]
 run = "cargo run"

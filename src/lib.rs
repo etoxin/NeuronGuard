@@ -149,6 +149,115 @@ impl NeuronGuardField {
             Ok(())
         })
     }
+
+    /// Train Stream
+    /// Trains active sensory tokens to target a specific correct motor neuron ID.
+    fn train_stream(
+        &self,
+        py: Python,
+        sensory_tokens: Vec<u32>,
+        correct_motor_id: u32,
+        amplify_delta: i16,
+        suppress_delta: i16,
+    ) -> PyResult<()> {
+        py.allow_threads(|| {
+            for &token_id in &sensory_tokens {
+                if (token_id as usize) < self.sensory_count {
+                    if let Some(lease) = self.sensory_neurons.try_acquire_lease(token_id as usize) {
+                        let neuron = lease.neuron();
+                        // Amplify correct expert pathway
+                        neuron.update_or_add_connection(correct_motor_id, amplify_delta);
+
+                        // Suppress incorrect expert pathways
+                        for j in 0..neuron.active_connections as usize {
+                            let target = neuron.target_neuron_ids[j];
+                            if target != correct_motor_id {
+                                neuron.weight_modifiers[j] =
+                                    neuron.weight_modifiers[j].saturating_sub(suppress_delta);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })
+    }
+
+    /// Reset Potentials
+    /// Resets all motor neuron potentials to zero.
+    fn reset_potentials(&self, py: Python) -> PyResult<()> {
+        py.allow_threads(|| {
+            for potential in self.motor_potentials.iter() {
+                potential.store(0, Ordering::Relaxed);
+            }
+            Ok(())
+        })
+    }
+
+    /// Get Potentials
+    /// Returns the current potentials of all motor neurons.
+    fn get_potentials(&self, py: Python) -> PyResult<Vec<i32>> {
+        py.allow_threads(|| {
+            let mut potentials = Vec::with_capacity(self.motor_count);
+            for potential in self.motor_potentials.iter() {
+                potentials.push(potential.load(Ordering::Relaxed));
+            }
+            Ok(potentials)
+        })
+    }
+
+    /// Save Weights
+    /// Serializes and saves the sensory neurons' connections to a binary file.
+    fn save_weights(&self, py: Python, path: String) -> PyResult<()> {
+        py.allow_threads(|| {
+            let mut bytes = Vec::new();
+            for i in 0..self.sensory_count {
+                unsafe {
+                    let n = self.sensory_neurons.get_neuron(i);
+                    bytes.extend_from_slice(&n.active_connections.to_le_bytes());
+                    for &target in &n.target_neuron_ids {
+                        bytes.extend_from_slice(&target.to_le_bytes());
+                    }
+                    for &weight in &n.weight_modifiers {
+                        bytes.extend_from_slice(&weight.to_le_bytes());
+                    }
+                }
+            }
+            std::fs::write(path, bytes)?;
+            Ok(())
+        })
+    }
+
+    /// Load Weights
+    /// Loads and deserializes the sensory neurons' connections from a binary file.
+    fn load_weights(&self, py: Python, path: String) -> PyResult<()> {
+        py.allow_threads(|| {
+            let bytes = std::fs::read(path)?;
+            let mut offset = 0;
+            for i in 0..self.sensory_count {
+                if offset + 4 + 32 + 16 > bytes.len() {
+                    break;
+                }
+                unsafe {
+                    let n = self.sensory_neurons.get_neuron(i);
+                    n.active_connections =
+                        u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+                    offset += 4;
+                    for j in 0..8 {
+                        n.target_neuron_ids[j] =
+                            u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+                        offset += 4;
+                    }
+                    for j in 0..8 {
+                        n.weight_modifiers[j] =
+                            i16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
+                        offset += 2;
+                    }
+                }
+            }
+            Ok(())
+        })
+    }
 }
 
 /// The root Python Module Definition

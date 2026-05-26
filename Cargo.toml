@@ -2,7 +2,6 @@
 name = "neuronguard"
 version = "0.1.0"
 edition = "2021"
-default-run = "llm-router"
 
 [dependencies]
 crossbeam-channel = "0.5"
@@ -21,15 +20,3 @@ crate-type = ["cdylib", "rlib"]
 [[bin]]
 name = "neuron-poc"
 path = "src/main.rs"
-
-[[bin]]
-name = "llm-router"
-path = "example/llm_router/main.rs"
-
-[[bin]]
-name = "ag-news"
-path = "example/ag_news/main.rs"
-
-[[bin]]
-name = "dbpedia"
-path = "example/dbpedia/main.rs"
