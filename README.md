@@ -75,6 +75,9 @@ mise run ag_news
 # Run the DBpedia Classifier & Router
 mise run dbpedia
 
+# Run the PyTorch vs NeuronGuard DBpedia Benchmark
+mise run dbpedia_benchmark
+
 # Run Rust unit tests
 mise run test
 
