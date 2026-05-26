@@ -4,7 +4,7 @@ python = "3.12"
 uv = "latest"
 
 [tasks.download_data]
-description = "Download and extract AG News and DBpedia datasets"
+description = "Download and extract AG News, DBpedia, and Credit Card Fraud datasets"
 run = """
 mkdir -p example/ag_news/data
 curl -s -o example/ag_news/data/train.csv https://raw.githubusercontent.com/mhjabreel/CharCnn_Keras/master/data/ag_news_csv/train.csv
@@ -13,6 +13,8 @@ mkdir -p example/dbpedia
 curl -s -o example/dbpedia/dbpedia_csv.tgz https://s3.amazonaws.com/fast-ai-nlp/dbpedia_csv.tgz
 tar -xzf example/dbpedia/dbpedia_csv.tgz -C example/dbpedia/
 rm example/dbpedia/dbpedia_csv.tgz
+mkdir -p example/fraud_scanner/data
+curl -s -r 0-10485760 -o example/fraud_scanner/data/creditcard_subset.csv https://raw.githubusercontent.com/nsethi31/Kaggle-Data-Credit-Card-Fraud-Detection/master/creditcard.csv
 """
 
 [tasks.poc]
@@ -25,6 +27,10 @@ run = "uv run --no-project python example/getting_started/main.py"
 [tasks.advanced]
 description = "Run the NeuronGuard Advanced Multi-Threaded Simulation"
 run = "uv run --no-project python example/advanced/main.py"
+
+[tasks.fraud_scanner]
+description = "Run the NeuronGuard High-Frequency Financial Fraud Scanner"
+run = "uv run --no-project python example/fraud_scanner/main.py"
 
 [tasks.llm_router]
 run = "cargo run --bin llm-router"
@@ -48,7 +54,7 @@ run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test"
 
 [tasks.py-setup]
 description = "Set up the Python virtual environment using uv"
-run = "uv venv && uv pip install maturin"
+run = "uv venv && uv pip install maturin tiktoken"
 
 [tasks.py-build]
 description = "Build and install the Python extension using uv and maturin"

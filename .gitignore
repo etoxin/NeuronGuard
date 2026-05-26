@@ -23,3 +23,10 @@ target
 # Downloaded Datasets for Examples
 example/ag_news/data/
 example/dbpedia/dbpedia_csv/
+example/fraud_scanner/data/
+
+# Generated Model Weights and Vocabularies
+*.bin
+*.txt
+.venv/
+.mise/

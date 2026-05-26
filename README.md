@@ -43,6 +43,18 @@ cortex.tick_decay(decay_factor=0.90)
 
 ---
 
+## Performance & Benchmarks
+
+| Dataset / Task | Samples | Classes | Sensory Neurons | Training Time | Accuracy |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **AG News Dataset** | 120,000 | 4 | 1,000 | **1.28s** | **82.14%** |
+| **DBpedia Ontology Dataset** | 560,000 | 14 | 5,000 | **0.64s** | **86.26%** |
+| **Credit Card Fraud Scanner** | 29,222 | 2 | 50 | **0.025s (25ms)** | **99.93%** (75% Precision) |
+
+*Benchmarks run on an Apple M2 Pro CPU using Python 3.12.*
+
+---
+
 ## Tasks
 
 You can run all library and extension tasks cleanly using `mise`:
@@ -53,6 +65,15 @@ mise run getting_started
 
 # Run the Advanced Multi-Threaded Simulation
 mise run advanced
+
+# Run the High-Frequency Financial Fraud Scanner
+mise run fraud_scanner
+
+# Run the AG News Classifier
+mise run ag_news
+
+# Run the DBpedia Classifier & Router
+mise run dbpedia
 
 # Run Rust unit tests
 mise run test
