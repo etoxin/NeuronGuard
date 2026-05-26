@@ -1,9 +1,20 @@
-use neuron_poc::guard::Guard;
-use neuron_poc::memory::NeuronField;
-use neuron_poc::queue::{EventPacket, EventQueue};
+// Copyright 2026 Adam Lusted
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use neuron_poc::neuron_guard::ThreadBoundedNeuronField;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::fs::File;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AGNewsCategory {
@@ -30,66 +41,6 @@ impl AGNewsCategory {
             AGNewsCategory::Sports => "Sports",
             AGNewsCategory::Business => "Business",
             AGNewsCategory::SciTech => "Sci/Tech",
-        }
-    }
-}
-
-/// Fast-path signal propagation for Run Mode.
-pub fn propagate_run(field: &NeuronField, queue: &EventQueue, packet: EventPacket) {
-    unsafe {
-        let neuron = field.get_neuron(packet.target_id as usize);
-        neuron.potential += packet.magnitude;
-
-        if neuron.potential >= neuron.threshold {
-            neuron.potential = 0.0; // Reset potential on fire
-
-            if neuron.target_id != 999 && (neuron.target_id as usize) < field.size {
-                let next_packet = EventPacket {
-                    target_id: neuron.target_id,
-                    magnitude: neuron.weight,
-                    source_id: None,
-                };
-                queue.push(next_packet);
-            }
-        }
-    }
-}
-
-/// Transactional signal propagation for Trainer Mode.
-pub fn propagate_trainer(
-    field: &NeuronField,
-    neuron_id: u32,
-    magnitude: f32,
-    parent_guard: Option<&Guard>,
-    feedback_value: f32,
-) {
-    unsafe {
-        let neuron = field.get_neuron(neuron_id as usize);
-        let current_guard = Guard::new(neuron_id, field, parent_guard);
-
-        let incoming_signal = if parent_guard.is_some() {
-            let parent_neuron = field.get_neuron(parent_guard.unwrap().neuron_id as usize);
-            magnitude * parent_neuron.weight
-        } else {
-            magnitude
-        };
-
-        neuron.potential += incoming_signal;
-
-        if neuron.potential >= neuron.threshold {
-            let target_id = neuron.target_id;
-
-            if target_id != 999 && (target_id as usize) < field.size {
-                propagate_trainer(
-                    field,
-                    target_id,
-                    magnitude,
-                    Some(&current_guard),
-                    feedback_value,
-                );
-            } else {
-                current_guard.propagate_feedback(feedback_value);
-            }
         }
     }
 }
@@ -175,18 +126,20 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Vocabulary built successfully!");
     println!("  Top 1,000 most frequent words selected.");
-    println!("  Total Neuron Field Size: {} neurons\n", field_size);
+    println!(
+        "  Total Neuron Field Size: {} neurons (64 bytes each)\n",
+        field_size
+    );
 
-    // 3. Initialize the NeuronField
-    let field = NeuronField::new(field_size);
+    // 3. Initialize the ThreadBoundedNeuronField
+    let field = ThreadBoundedNeuronField::new(field_size);
 
     // Configure word neurons to target their respective experts (1000..1004)
     // Each word targets the expert (category) in which it occurs most frequently!
     unsafe {
         for i in 0..num_words {
             let n = field.get_neuron(i);
-            n.potential = 0.0;
-            n.threshold = 1.0;
+            n.token_id = i as u32;
 
             // Find the category with the highest frequency for this word
             let counts = final_vocab[i].1;
@@ -199,17 +152,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
 
-            n.target_id = (num_words + max_idx) as u32;
-            n.weight = 1.5; // Start with high weight (susceptible to noise)
+            let target_expert = (num_words + max_idx) as u32;
+            n.update_or_add_connection(target_expert, 15); // Start with high weight modifier
         }
 
         // Configure Expert neurons (1000..1004)
         for i in num_words..field_size {
             let n = field.get_neuron(i);
-            n.potential = 0.0;
-            n.threshold = 1.0;
-            n.target_id = 999; // End of chain
-            n.weight = 0.0;
+            n.token_id = i as u32;
+            n.active_connections = 0;
         }
     }
 
@@ -232,18 +183,21 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         for token in tokens {
             if let Some(&word_idx) = vocab_map.get(&token) {
-                unsafe {
-                    let word_neuron = field.get_neuron(word_idx);
-                    let target_expert = word_neuron.target_id - num_words as u32;
+                if let Some(lease) = field.try_acquire_lease(word_idx) {
+                    let neuron = lease.neuron();
+                    let correct_expert = (num_words + category as usize) as u32;
 
-                    // Positive feedback if correct expert, negative if incorrect
-                    let feedback = if target_expert == category as u32 {
-                        0.05
-                    } else {
-                        -0.15
-                    };
+                    // Amplify correct expert pathway
+                    neuron.update_or_add_connection(correct_expert, 5);
 
-                    propagate_trainer(&field, word_idx as u32, 1.0, None, feedback);
+                    // Suppress incorrect expert pathways
+                    for j in 0..neuron.active_connections as usize {
+                        let target = neuron.target_neuron_ids[j];
+                        if target != correct_expert && target >= num_words as u32 {
+                            neuron.weight_modifiers[j] =
+                                neuron.weight_modifiers[j].saturating_sub(15);
+                        }
+                    }
                 }
             }
         }
@@ -278,34 +232,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         let tokens = tokenize(&full_text);
 
         // Reset expert potentials
-        unsafe {
-            for i in num_words..field_size {
-                field.get_neuron(i).potential = 0.0;
-            }
-        }
+        let mut expert_potentials = [0i32; 4];
 
-        // Present each word in Run Mode
+        // Present each word in Run Mode (direct matrix-free evaluation)
         for token in tokens {
             if let Some(&word_idx) = vocab_map.get(&token) {
                 unsafe {
-                    let word_neuron = field.get_neuron(word_idx);
-                    let target_expert = word_neuron.target_id;
-                    let expert_neuron = field.get_neuron(target_expert as usize);
-                    expert_neuron.potential += word_neuron.weight;
+                    let n = field.get_neuron(word_idx);
+                    for i in 0..n.active_connections as usize {
+                        let target = n.target_neuron_ids[i] as usize;
+                        if target >= num_words && target < field_size {
+                            let expert_idx = target - num_words;
+                            expert_potentials[expert_idx] += n.weight_modifiers[i] as i32;
+                        }
+                    }
                 }
             }
         }
 
         // Determine which expert has the highest potential
         let mut predicted_idx = 0;
-        let mut max_potential = -1.0;
-        unsafe {
-            for idx in 0..4 {
-                let p = field.get_neuron(num_words + idx).potential;
-                if p > max_potential {
-                    max_potential = p;
-                    predicted_idx = idx;
-                }
+        let mut max_potential = i32::MIN;
+        for idx in 0..4 {
+            let p = expert_potentials[idx];
+            if p > max_potential {
+                max_potential = p;
+                predicted_idx = idx;
             }
         }
 

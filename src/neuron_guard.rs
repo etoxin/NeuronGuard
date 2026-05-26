@@ -56,10 +56,10 @@ impl ThreadBoundedNeuron {
             // No space! Execute autonomous least-significant eviction
             // Find the weakest connection (value closest to zero)
             let mut weakest_idx = 0;
-            let mut weakest_val = self.weight_modifiers[0].abs();
+            let mut weakest_val = self.weight_modifiers[0].unsigned_abs();
 
             for i in 1..MAX_THREADS {
-                let val = self.weight_modifiers[i].abs();
+                let val = self.weight_modifiers[i].unsigned_abs();
                 if val < weakest_val {
                     weakest_val = val;
                     weakest_idx = i;
@@ -362,5 +362,113 @@ mod tests {
         assert_eq!(neuron.target_neuron_ids[3], 99);
         assert_eq!(neuron.weight_modifiers[3], 15);
         assert_eq!(neuron.active_connections, 8);
+    }
+
+    #[test]
+    fn test_autonomous_eviction_with_min_weight() {
+        let mut neuron = ThreadBoundedNeuron {
+            token_id: 1,
+            active_connections: 8,
+            target_neuron_ids: [0, 1, 2, 3, 4, 5, 6, 7],
+            weight_modifiers: [10, 20, 30, i16::MIN, 50, 60, 70, 80],
+            padding: [0; 8],
+        };
+
+        // Add a new connection. It should NOT panic on i16::MIN.
+        // It should evict index 0 (weight 10 is closest to 0, since i16::MIN has absolute value 32768).
+        neuron.update_or_add_connection(99, 15);
+
+        assert_eq!(neuron.target_neuron_ids[0], 99);
+        assert_eq!(neuron.weight_modifiers[0], 15);
+    }
+
+    #[test]
+    fn test_saturating_weight_updates() {
+        let mut neuron = ThreadBoundedNeuron {
+            token_id: 1,
+            active_connections: 1,
+            target_neuron_ids: [42, 0, 0, 0, 0, 0, 0, 0],
+            weight_modifiers: [32760, 0, 0, 0, 0, 0, 0, 0],
+            padding: [0; 8],
+        };
+
+        // Adding 10 to 32760 should saturate at i16::MAX (32767)
+        neuron.update_or_add_connection(42, 10);
+        assert_eq!(neuron.weight_modifiers[0], i16::MAX);
+
+        // Subtracting 10 from -32760 should saturate at i16::MIN (-32768)
+        neuron.weight_modifiers[0] = -32760;
+        neuron.update_or_add_connection(42, -10);
+        assert_eq!(neuron.weight_modifiers[0], i16::MIN);
+    }
+
+    #[test]
+    fn test_try_acquire_lease_out_of_bounds() {
+        let field = ThreadBoundedNeuronField::new(5);
+        assert!(field.try_acquire_lease(5).is_none());
+        assert!(field.try_acquire_lease(100).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "Neuron ID out of bounds")]
+    fn test_get_neuron_out_of_bounds_panic() {
+        let field = ThreadBoundedNeuronField::new(5);
+        unsafe {
+            field.get_neuron(5);
+        }
+    }
+
+    #[test]
+    fn test_concurrent_lease_acquisition() {
+        use std::sync::Barrier;
+
+        let field = Arc::new(ThreadBoundedNeuronField::new(1));
+        let barrier1 = Arc::new(Barrier::new(4));
+        let barrier2 = Arc::new(Barrier::new(4));
+        let mut handles = Vec::new();
+
+        for _ in 0..4 {
+            let field_clone = Arc::clone(&field);
+            let barrier1_clone = Arc::clone(&barrier1);
+            let barrier2_clone = Arc::clone(&barrier2);
+            handles.push(thread::spawn(move || {
+                barrier1_clone.wait();
+                let lease = field_clone.try_acquire_lease(0);
+                let acquired = lease.is_some();
+                barrier2_clone.wait();
+                acquired
+            }));
+        }
+
+        let mut success_count = 0;
+        for handle in handles {
+            if handle.join().unwrap() {
+                success_count += 1;
+            }
+        }
+
+        // Exactly one thread must have successfully acquired the lease
+        assert_eq!(success_count, 1);
+    }
+
+    #[test]
+    fn test_tokenize_features_boundaries() {
+        // Test low values
+        assert_eq!(
+            tokenize_features(10.0, 500.0, 0.05),
+            1 | (1 << 8) | (1 << 16)
+        );
+
+        // Test medium values
+        assert_eq!(
+            tokenize_features(18.0, 1000.0, 0.15),
+            4 | (4 << 8) | (4 << 16)
+        );
+
+        // Test high values
+        assert_eq!(
+            tokenize_features(25.0, 1500.0, 0.30),
+            7 | (7 << 8) | (7 << 16)
+        );
     }
 }

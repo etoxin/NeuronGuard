@@ -1,8 +1,22 @@
-use neuron_poc::guard::Guard;
-use neuron_poc::memory::NeuronField;
-use neuron_poc::queue::{EventPacket, EventQueue};
+// Copyright 2026 Adam Lusted
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use neuron_poc::neuron_guard::{ParallelRouter, ThreadBoundedNeuronField};
 use rand::seq::SliceRandom;
 use rand::Rng;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
 
 // Define our 5 Expert categories
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,66 +36,6 @@ impl ExpertCategory {
             ExpertCategory::Financial => "Financial",
             ExpertCategory::Medical => "Medical",
             ExpertCategory::Legal => "Legal",
-        }
-    }
-}
-
-/// Fast-path signal propagation for Run Mode.
-pub fn propagate_run(field: &NeuronField, queue: &EventQueue, packet: EventPacket) {
-    unsafe {
-        let neuron = field.get_neuron(packet.target_id as usize);
-        neuron.potential += packet.magnitude;
-
-        if neuron.potential >= neuron.threshold {
-            neuron.potential = 0.0; // Reset potential on fire
-
-            if neuron.target_id != 999 && (neuron.target_id as usize) < field.size {
-                let next_packet = EventPacket {
-                    target_id: neuron.target_id,
-                    magnitude: neuron.weight,
-                    source_id: None,
-                };
-                queue.push(next_packet);
-            }
-        }
-    }
-}
-
-/// Transactional signal propagation for Trainer Mode.
-pub fn propagate_trainer(
-    field: &NeuronField,
-    neuron_id: u32,
-    magnitude: f32,
-    parent_guard: Option<&Guard>,
-    feedback_value: f32,
-) {
-    unsafe {
-        let neuron = field.get_neuron(neuron_id as usize);
-        let current_guard = Guard::new(neuron_id, field, parent_guard);
-
-        let incoming_signal = if parent_guard.is_some() {
-            let parent_neuron = field.get_neuron(parent_guard.unwrap().neuron_id as usize);
-            magnitude * parent_neuron.weight
-        } else {
-            magnitude
-        };
-
-        neuron.potential += incoming_signal;
-
-        if neuron.potential >= neuron.threshold {
-            let target_id = neuron.target_id;
-
-            if target_id != 999 && (target_id as usize) < field.size {
-                propagate_trainer(
-                    field,
-                    target_id,
-                    magnitude,
-                    Some(&current_guard),
-                    feedback_value,
-                );
-            } else {
-                current_guard.propagate_feedback(feedback_value);
-            }
         }
     }
 }
@@ -183,38 +137,44 @@ fn main() {
     println!("Vocabulary Size: {} words", num_words);
     println!("Number of Experts: {} experts", num_experts);
     println!(
-        "Total Neuron Field Size: {} neurons (16 bytes each)\n",
+        "Total Neuron Field Size: {} neurons (64 bytes each, aligned to 64 bytes)\n",
         field_size
     );
 
-    // 2. Initialize the NeuronField
-    let field = NeuronField::new(field_size);
+    // 2. Initialize the ThreadBoundedNeuronField
+    let field = ThreadBoundedNeuronField::new(field_size);
 
     // Configure word neurons (0..100) to target their respective experts (100..105)
     unsafe {
         for i in 0..num_words {
             let n = field.get_neuron(i);
-            n.potential = 0.0;
-            n.threshold = 1.0;
+            n.token_id = i as u32;
 
             // Map word category to expert ID
             let category_idx = i / 20;
-            n.target_id = (num_words + category_idx) as u32;
-            n.weight = 1.5; // Start with high weight (susceptible to noise)
+            let target_expert = (num_words + category_idx) as u32;
+
+            // Add initial connection with high weight modifier
+            n.update_or_add_connection(target_expert, 15);
         }
 
         // Configure Expert neurons (100..105)
         for i in num_words..field_size {
             let n = field.get_neuron(i);
-            n.potential = 0.0;
-            n.threshold = 1.0;
-            n.target_id = 999; // End of chain
-            n.weight = 0.0;
+            n.token_id = i as u32;
+            n.active_connections = 0;
         }
     }
 
+    // Set up the parallel router and accumulators
+    let accumulators = Arc::new(
+        (0..field_size)
+            .map(|_| AtomicI32::new(0))
+            .collect::<Vec<_>>(),
+    );
+    let router = ParallelRouter::new(Arc::clone(&accumulators));
+
     println!("--- Step 1: Testing Routing BEFORE Training (Run Mode) ---");
-    // Let's route a sentence from each category
     let test_sentences = vec![
         ("rust compiler async bug", ExpertCategory::Technical),
         ("hello friend welcome buddy", ExpertCategory::Greeting),
@@ -224,7 +184,14 @@ fn main() {
     ];
 
     for (sentence, expected_cat) in &test_sentences {
-        route_and_visualize(&field, sentence, *expected_cat);
+        route_and_visualize(
+            &field,
+            &router,
+            &accumulators,
+            sentence,
+            *expected_cat,
+            num_words,
+        );
     }
 
     println!("\n--- Step 2: Training the Decent-Sized Model (Trainer Mode) ---");
@@ -258,21 +225,24 @@ fn main() {
                 chosen_words.push(*word_pool.choose(&mut rng).unwrap());
             }
 
-            // Train on each word in the sentence
+            // Train on each word in the sentence using the Guard/Lease pattern
             for word in &chosen_words {
                 if let Some(word_idx) = vocab.iter().position(|w| w == word) {
-                    unsafe {
-                        let word_neuron = field.get_neuron(word_idx);
-                        let target_expert = word_neuron.target_id - num_words as u32;
+                    if let Some(lease) = field.try_acquire_lease(word_idx) {
+                        let neuron = lease.neuron();
+                        let correct_expert = (num_words + *category as usize) as u32;
 
-                        // Apply feedback: positive if it targets the correct expert, negative if incorrect
-                        let feedback = if target_expert == *category as u32 {
-                            0.05
-                        } else {
-                            -0.15
-                        };
+                        // Amplify correct expert pathway
+                        neuron.update_or_add_connection(correct_expert, 5);
 
-                        propagate_trainer(&field, word_idx as u32, 1.0, None, feedback);
+                        // Suppress incorrect expert pathways
+                        for i in 0..neuron.active_connections as usize {
+                            let target = neuron.target_neuron_ids[i];
+                            if target != correct_expert && target >= num_words as u32 {
+                                neuron.weight_modifiers[i] =
+                                    neuron.weight_modifiers[i].saturating_sub(15);
+                            }
+                        }
                     }
                 }
             }
@@ -282,27 +252,38 @@ fn main() {
         if epoch % 5 == 0 {
             unsafe {
                 let mut avg_weight = 0.0;
+                let mut total_connections = 0;
                 for i in 0..num_words {
-                    avg_weight += field.get_neuron(i).weight;
+                    let n = field.get_neuron(i);
+                    total_connections += n.active_connections;
+                    for j in 0..n.active_connections as usize {
+                        avg_weight += n.weight_modifiers[j] as f32;
+                    }
                 }
-                avg_weight /= num_words as f32;
+                avg_weight /= total_connections as f32;
                 println!(
-                    "  Epoch {:02}/20 Complete. Average Word Weight: {:.4}",
-                    epoch, avg_weight
+                    "  Epoch {:02}/20 Complete. Avg Connection Weight: {:.4}, Total Connections: {}",
+                    epoch, avg_weight, total_connections
                 );
             }
         }
     }
 
     println!("\n--- Step 3: Testing Routing AFTER Training (Run Mode) ---");
-    // Let's route the same sentences again to see the sharp routing!
     for (sentence, expected_cat) in &test_sentences {
-        route_and_visualize(&field, sentence, *expected_cat);
+        route_and_visualize(
+            &field,
+            &router,
+            &accumulators,
+            sentence,
+            *expected_cat,
+            num_words,
+        );
     }
 
     println!("\n--- Step 4: Routing a Complex Mixed Sentence ---");
     // Let's route a highly complex mixed sentence:
-    // "the patient needs medicine to buy stock in court"
+    // "patient medicine buy stock court"
     // This contains:
     // - Medical words: "patient", "medicine" (2 words)
     // - Financial words: "buy", "stock" (2 words)
@@ -310,27 +291,33 @@ fn main() {
     // We expect Medical and Financial experts to compete and have the highest potentials!
     route_and_visualize(
         &field,
+        &router,
+        &accumulators,
         "patient medicine buy stock court",
         ExpertCategory::Medical,
+        num_words,
     );
 
     println!("====================================================================");
 }
 
-fn route_and_visualize(field: &NeuronField, sentence: &str, expected_cat: ExpertCategory) {
+fn route_and_visualize(
+    field: &ThreadBoundedNeuronField,
+    router: &ParallelRouter,
+    accumulators: &Arc<Vec<AtomicI32>>,
+    sentence: &str,
+    expected_cat: ExpertCategory,
+    num_words: usize,
+) {
     let words: Vec<&str> = sentence.split_whitespace().collect();
-    let num_words = 100;
 
-    // Reset expert potentials
-    unsafe {
-        for i in num_words..105 {
-            field.get_neuron(i).potential = 0.0;
-        }
+    // Reset expert potentials in the accumulators
+    for i in num_words..num_words + 5 {
+        accumulators[i].store(0, Ordering::Relaxed);
     }
 
-    // Present each word in Run Mode
+    // Present each word in Run Mode using the ParallelRouter
     for word in &words {
-        // Find word index in our 100-word vocabulary
         let tech_words = vec![
             "rust", "code", "compiler", "bug", "memory", "pointer", "thread", "async", "cargo",
             "struct", "enum", "trait", "panic", "unsafe", "borrow", "lifetime", "macro", "crate",
@@ -417,37 +404,37 @@ fn route_and_visualize(field: &NeuronField, sentence: &str, expected_cat: Expert
 
         if let Some(word_idx) = vocab.iter().position(|w| w == word) {
             unsafe {
-                let word_neuron = field.get_neuron(word_idx);
-                let target_expert = word_neuron.target_id;
-                let expert_neuron = field.get_neuron(target_expert as usize);
-                expert_neuron.potential += word_neuron.weight;
+                let neuron = *field.get_neuron(word_idx);
+                router.broadcast(neuron);
             }
         }
     }
+
+    // Wait a tiny bit for the parallel threads to finish processing
+    std::thread::sleep(std::time::Duration::from_millis(5));
 
     println!(
         "Sentence: \"{}\" (Expected: {})",
         sentence,
         expected_cat.name()
     );
-    unsafe {
-        for i in 0..5 {
-            let p = field.get_neuron(num_words + i).potential;
-            let cat_name = match i {
-                0 => "Technical",
-                1 => "Greeting ",
-                2 => "Financial",
-                3 => "Medical  ",
-                4 => "Legal    ",
-                _ => unreachable!(),
-            };
-            println!(
-                "  [{}] Potential: {:.2} {}",
-                cat_name,
-                p,
-                "*".repeat((p * 10.0) as usize)
-            );
-        }
+    for i in 0..5 {
+        let p = accumulators[num_words + i].load(Ordering::Relaxed);
+        let cat_name = match i {
+            0 => "Technical",
+            1 => "Greeting ",
+            2 => "Financial",
+            3 => "Medical  ",
+            4 => "Legal    ",
+            _ => unreachable!(),
+        };
+        let bar_len = if p > 0 { p as usize } else { 0 };
+        println!(
+            "  [{}] Potential: {:3} {}",
+            cat_name,
+            p,
+            "*".repeat(bar_len)
+        );
     }
     println!();
 }
