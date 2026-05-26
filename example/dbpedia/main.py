@@ -22,9 +22,8 @@ import neuronguard as ng
 
 
 def tokenize(text):
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9]", " ", text)
-    return text.split()
+    # Extremely fast and robust regex word tokenizer
+    return re.findall(r"\b\w+\b", text.lower())
 
 
 class DBpediaCategory:
@@ -105,7 +104,7 @@ def main():
     weights_file_path = os.path.join(script_dir, "dbpedia_weights.bin")
     vocab_file_path = os.path.join(script_dir, "dbpedia_vocab.txt")
 
-    vocab_size = 2000
+    vocab_size = 5000
     num_experts = 14
     field_size = vocab_size + num_experts
 
@@ -209,7 +208,7 @@ def main():
                 if word_indices:
                     train_records.append((cat_idx, word_indices))
 
-        # Shuffle the training records
+        # Shuffle the training records to prevent catastrophic forgetting
         random.shuffle(train_records)
         print(f"  Loaded {len(train_records):,} training records.")
 
@@ -308,19 +307,19 @@ def main():
     print("--- Step 4: Live Routing Examples ---")
     examples = [
         (
-            "Apple Inc. is an American multinational technology company headquartered in Cupertino, California.",
+            "Apple Inc. is an American multinational technology company headquartered in California.",
             "Company",
         ),
         (
-            "Albert Einstein was a German-born theoretical physicist who developed the theory of relativity.",
+            "Vincent van Gogh was a famous Dutch post-impressionist painter who created many beautiful artworks.",
             "Artist",
         ),
         (
-            "The Boeing 747 is a large, long-range wide-body airliner designed and manufactured by Boeing.",
+            "The Boeing 747 is a large wide-body aircraft designed and manufactured for commercial flight.",
             "Mean of Transportation",
         ),
         (
-            "The Great Barrier Reef is the world's largest coral reef system composed of over 2,900 individual reefs.",
+            "The Amazon River is a massive flowing river located in South America, surrounded by a dense tropical forest.",
             "Natural Place",
         ),
     ]
@@ -331,13 +330,14 @@ def main():
         recognized = [t for t in tokens if t in vocab_map]
         word_indices = [vocab_map[t] for t in recognized]
 
-        field.process_stream(word_indices, training_mode=False)
+        if word_indices:
+            field.process_stream(word_indices, training_mode=False)
+
         expert_potentials = field.get_potentials()
         predicted_idx = expert_potentials.index(max(expert_potentials))
         winner = DBpediaCategory.name(predicted_idx)
 
         print(f'  Input   : "{text}"')
-        print(f"  Vocab   : {recognized}")
         print(f"  ➔ Winner: {winner.upper()} (Expected: {expected.upper()})\n")
 
     # -------------------------------------------------------------------------
@@ -367,13 +367,9 @@ def main():
 
         recognized_words = [token for token in tokens if token in vocab_map]
         if not recognized_words:
-            print(
-                "  ⚠️  None of the words were recognized in the 2,000-word vocabulary."
-            )
-            print("      Try using more general descriptive words!\n")
+            print("  ⚠️  No valid tokens found.")
             continue
 
-        print(f"  Recognized Vocab: {recognized_words}")
         print("  Expert Activations:")
 
         word_indices = [vocab_map[token] for token in recognized_words]
