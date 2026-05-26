@@ -48,6 +48,12 @@ cortex.tick_decay(decay_factor=0.90)
 You can run all library and extension tasks cleanly using `mise`:
 
 ```bash
+# Run the Getting Started Guide
+mise run getting_started
+
+# Run the Advanced Multi-Threaded Simulation
+mise run advanced
+
 # Run Rust unit tests
 mise run test
 

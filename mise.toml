@@ -18,6 +18,14 @@ rm example/dbpedia/dbpedia_csv.tgz
 [tasks.poc]
 run = "cargo run --bin neuron-poc"
 
+[tasks.getting_started]
+description = "Run the NeuronGuard Getting Started Guide"
+run = "uv run --no-project python example/getting_started/main.py"
+
+[tasks.advanced]
+description = "Run the NeuronGuard Advanced Multi-Threaded Simulation"
+run = "uv run --no-project python example/advanced/main.py"
+
 [tasks.llm_router]
 run = "cargo run --bin llm-router"
 
