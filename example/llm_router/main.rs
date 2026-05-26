@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use neuron_poc::neuron_guard::{ParallelRouter, ThreadBoundedNeuronField};
+use neuron_poc::train::train_neuron_connection;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -228,22 +229,8 @@ fn main() {
             // Train on each word in the sentence using the Guard/Lease pattern
             for word in &chosen_words {
                 if let Some(word_idx) = vocab.iter().position(|w| w == word) {
-                    if let Some(lease) = field.try_acquire_lease(word_idx) {
-                        let neuron = lease.neuron();
-                        let correct_expert = (num_words + *category as usize) as u32;
-
-                        // Amplify correct expert pathway
-                        neuron.update_or_add_connection(correct_expert, 5);
-
-                        // Suppress incorrect expert pathways
-                        for i in 0..neuron.active_connections as usize {
-                            let target = neuron.target_neuron_ids[i];
-                            if target != correct_expert && target >= num_words as u32 {
-                                neuron.weight_modifiers[i] =
-                                    neuron.weight_modifiers[i].saturating_sub(15);
-                            }
-                        }
-                    }
+                    let correct_expert = (num_words + *category as usize) as u32;
+                    train_neuron_connection(&field, word_idx, correct_expert, num_words, 5, 15);
                 }
             }
         }

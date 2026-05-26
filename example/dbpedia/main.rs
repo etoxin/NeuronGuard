@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use neuron_poc::neuron_guard::{ThreadBoundedNeuron, ThreadBoundedNeuronField};
+use neuron_poc::run::{evaluate_neuron_potentials, tokenize};
+use neuron_poc::train::train_neuron_connection;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
@@ -63,17 +65,6 @@ impl DBpediaCategory {
             DBpediaCategory::WrittenWork => "Written Work",
         }
     }
-}
-
-/// Simple text tokenizer and cleaner
-fn tokenize(text: &str) -> Vec<String> {
-    text.to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
-        .collect::<String>()
-        .split_whitespace()
-        .map(|s| s.to_string())
-        .collect()
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -229,22 +220,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             for token in tokens {
                 if let Some(&word_idx) = vocab_map.get(&token) {
-                    if let Some(lease) = field.try_acquire_lease(word_idx) {
-                        let neuron = lease.neuron();
-                        let correct_expert = (vocab_size + category as usize) as u32;
-
-                        // Amplify correct expert pathway
-                        neuron.update_or_add_connection(correct_expert, 5);
-
-                        // Suppress incorrect expert pathways
-                        for j in 0..neuron.active_connections as usize {
-                            let target = neuron.target_neuron_ids[j];
-                            if target != correct_expert && target >= vocab_size as u32 {
-                                neuron.weight_modifiers[j] =
-                                    neuron.weight_modifiers[j].saturating_sub(15);
-                            }
-                        }
-                    }
+                    let correct_expert = (vocab_size + category as usize) as u32;
+                    train_neuron_connection(&field, word_idx, correct_expert, vocab_size, 5, 15);
                 }
             }
 
@@ -302,16 +279,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         for token in &tokens {
             if let Some(&word_idx) = vocab_map.get(token) {
                 recognized_words.push(token.clone());
-                unsafe {
-                    let n = field.get_neuron(word_idx);
-                    for i in 0..n.active_connections as usize {
-                        let target = n.target_neuron_ids[i] as usize;
-                        if target >= vocab_size && target < field_size {
-                            let expert_idx = target - vocab_size;
-                            expert_potentials[expert_idx] += n.weight_modifiers[i] as i32;
-                        }
-                    }
-                }
+                evaluate_neuron_potentials(
+                    &field,
+                    word_idx,
+                    vocab_size,
+                    field_size,
+                    &mut expert_potentials,
+                );
             }
         }
 
