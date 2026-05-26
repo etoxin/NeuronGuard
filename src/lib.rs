@@ -135,6 +135,43 @@ impl NeuronGuardField {
         })
     }
 
+    /// Process Stream Synchronous
+    /// Evaluates the active sensory tokens synchronously on the calling thread,
+    /// adding their weights directly to the motor potentials.
+    /// This is extremely fast and perfect for batch evaluation (no thread pool or sleep overhead).
+    fn process_stream_sync(&self, py: Python, sensory_tokens: Vec<u32>) -> PyResult<u32> {
+        py.allow_threads(|| {
+            for &token_id in &sensory_tokens {
+                if (token_id as usize) < self.sensory_count {
+                    unsafe {
+                        let n = self.sensory_neurons.get_neuron(token_id as usize);
+                        for i in 0..n.active_connections as usize {
+                            let target = n.target_neuron_ids[i] as usize;
+                            if target < self.motor_count {
+                                self.motor_potentials[target]
+                                    .fetch_add(n.weight_modifiers[i] as i32, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Locate highest activated motor neuron index
+            let mut highest_index = 0;
+            let mut max_potential = i32::MIN;
+
+            for i in 0..self.motor_count {
+                let pot = self.motor_potentials[i].load(Ordering::Relaxed);
+                if pot > max_potential {
+                    max_potential = pot;
+                    highest_index = i as u32;
+                }
+            }
+
+            Ok(highest_index)
+        })
+    }
+
     /// Tick Decay
     /// Exposes your prototype's background metabolic forgetting clock straight to the Python loop.
     fn tick_decay(&self, py: Python, decay_factor: f32) -> PyResult<()> {

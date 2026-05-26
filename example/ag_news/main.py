@@ -162,7 +162,7 @@ def main():
 
             word_indices = [vocab_map[token] for token in tokens if token in vocab_map]
             if word_indices:
-                field.process_stream(word_indices, training_mode=False)
+                field.process_stream_sync(word_indices)
 
             # Determine which expert has the highest potential
             expert_potentials = field.get_potentials()
