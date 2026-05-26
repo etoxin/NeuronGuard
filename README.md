@@ -1,189 +1,71 @@
-# NeuronGuard
+# NeuronGuard Python Extension
 
-A high-performance, native Rust spiking neural network (SNN) designed for lock-free, asynchronous event routing and real-time local learning. By rejecting the traditional, GPU-heavy dense tensor paradigm, NeuronGuard demonstrates how neural processing and context routing can be executed at raw hardware limits on standard CPUs.
-
----
-
-## Summary
-
-The **NeuronGuard** proof of concept is built around a flat, 16-byte aligned memory field and a transactional, stack-allocated **Lease (Guard) Pattern** to achieve ultra-fast local learning and inference with zero global locks.
-
-### Key Architectural Achievements:
-* **Zero Global State Concurrency**: Background worker threads update memory nodes completely via array index lookups without a single global read/write lock (`Mutex` or `RwLock`), achieving true multi-core parallelism.
-* **Cache-Optimal Memory Layout**: Neurons are represented as flat, 16-byte aligned blocks. Pointerless offset arithmetic ($Base + ID \times 16$) ensures perfect CPU L1/L2 cache-locality and zero pointer-chasing latency.
-* **Transactional Stack-Allocated Leases**: Real-time learning is executed via a unique **Lease (Guard) Pattern** allocated on the thread's stack. Feedback signals propagate backwards along active pathways, and Rust's `Drop` trait automatically resets potentials, priming memory blocks with zero garbage collection overhead.
-* **Production-Grade Scalability**: Proven beyond a basic PoC by training on the full **560,000-sample DBpedia Ontology dataset in under 20 seconds** on an Apple M2 Pro CPU, achieving **83.10% accuracy** with a compiled model size of only **32KB** (serializable and loadable in `< 1ms`).
+`neuronguard` is a high-performance, cache-aligned neuromorphic bridge that wraps a bare-metal Rust spiking neural network (SNN) core into an idiomatic Python library. It drops the Global Interpreter Lock (GIL) to execute parallel, lock-free address-mapping mutations on 64-byte `ThreadBoundedNeuron` CPU cache lines.
 
 ---
 
-## Performance Benchmarks
+## Installation
 
-| Dataset / Task | Samples | Classes | Neuron Field Size | Training Time | Accuracy |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Rhythm Tracker (Core PoC)** | - | 1 | 3 neurons | < 0.001s | **100%** (Converged) |
-| **AG News Dataset** | 120,000 | 4 | 1,004 neurons | **3.38s** | **80.17%** |
-| **DBpedia Ontology Dataset** | 560,000 | 14 | 2,014 neurons | **19.90s** | **83.10%** |
+This project uses [mise](https://mise.jdx.dev/) and [uv](https://github.com/astral-sh/uv) to manage toolchains and tasks.
 
-*Benchmarks run on an Apple M2 Pro CPU.*
+```bash
+# 1. Install all tools (Rust, Python, uv)
+mise install
 
+# 2. Set up the virtual environment
+mise run py-setup
+
+# 3. Build and install the Python extension
+mise run py-build
 ```
-MEMORY CONSUMPTION (DBpedia Ontology Dataset)
-
-NeuronGuard █ 32.22 KB
-            
-PyTorch     ██████████████████████████████████████████████████ est 500+ MB (Minimum runtime heap)
-```
-
-### Real-World Applications
-
-This PoC uses a fixed, ultra-lean memory footprint (under 32 KB) and zero heavy matrix math, it solves real problems where standard AI frameworks (like PyTorch) are too big, too slow, or too expensive to run:
-
-* **Instant LLM Routers (MoE Gateways):** It can sit in front of local LLM clusters as a traffic cop. It reads incoming prompts and instantly routes them to the right specialised model in sub-milliseconds with virtually zero CPU overhead.
-* **Smart Edge Devices & Microcontrollers:** Since the entire model fits inside 32 KB of RAM, you can compile it directly onto a cheap $4 microcontroller (like a Raspberry Pi Pico). It brings local text, sensor, or audio classification to tiny hardware without needing an OS or a heap allocator.
-* **High-Speed Network Firewalls:** It can live directly inside a network stack to scan incoming packet logs on the fly, instantly flagging malicious payloads at absolute hardware speeds without dropping network traffic.
-* **On-Device Continuous Learning:** By using the temporary **Guard/Lease Pattern**, devices can safely learn from new user behavior on the fly without running heavy background training processes or slowing down the system.
 
 ---
 
-## How to Run PoC
+## Minimal Usage Example
 
-This project uses [mise](https://mise.jdx.dev/) to manage toolchains and tasks.
+```python
+import neuronguard as ng
+import time
 
-### 0. Download the Datasets
-Before running the AG News or DBpedia classifiers, download and extract the datasets:
-```bash
-mise run download_data
+# Initialize Local Biological Cortex (1000 Sensory -> 4 Motor Neurons)
+# Fits entirely within CPU L1/L2 cache lines (~62 KB)
+cortex = ng.NeuronGuardField(sensory_count=1000, motor_count=4)
+
+# Process incoming sensory stimuli tokens (drops GIL instantly)
+active_stimuli = [42, 108, 512]
+triggered_motor_id = cortex.process_stream(active_stimuli, training_mode=True)
+
+print(f"Stimuli {active_stimuli} ➔ Triggered Motor Neuron: {triggered_motor_id}")
+
+# Run background metabolic decay loop
+cortex.tick_decay(decay_factor=0.90)
 ```
 
-### 1. Run the Core PoC (Rhythm Tracker)
-To run the pristine core PoC demonstrating temporal pattern convergence:
-```bash
-mise run poc
-```
+---
 
-### 2. Run the Mixture-of-Experts (MoE) Router Example
-To run the 105-neuron MoE router simulation:
-```bash
-mise run llm_router
-```
+## Tasks
 
-### 3. Run the AG News 120,000 Sample Classifier
-To download the dataset, train on 120,000 samples, and evaluate on 7,600 test samples:
-```bash
-mise run ag_news
-```
+You can run all library and extension tasks cleanly using `mise`:
 
-### 4. Run the DBpedia 560,000 Sample Classifier
-To download the dataset, train on 560,000 samples in under 20 seconds, and evaluate on 70,000 test samples:
 ```bash
-mise run dbpedia
-```
+# Run the Getting Started Guide
+mise run getting_started
 
-### 5. Run the Entire Test Suite
-To run all 21 unit and integration tests across all binaries:
-```bash
+# Run the Advanced Multi-Threaded Simulation
+mise run advanced
+
+# Run Rust unit tests
 mise run test
+
+# Build and install the Python extension
+mise run py-build
+
+# Run the Python verification script
+mise run py-test
 ```
-
----
-
-## Architectural Overview
-
-### 1. Memory Configuration (`src/memory.rs`)
-Enforces a strict 16-byte layout and pointerless offset arithmetic.
-```rust
-// Force alignment to 16 bytes in memory
-#[repr(C, align(16))]
-pub struct GuardedNeuron {
-    pub potential: f32,       // 4 bytes
-    pub threshold: f32,       // 4 bytes
-    pub target_id: u32,       // 4 bytes
-    pub weight: f32,          // 4 bytes
-} // Total = 16 bytes
-
-pub struct NeuronField {
-    pub storage: *mut GuardedNeuron,
-    pub size: usize,
-}
-```
-
-### 2. The Core Multi-Threaded Queue (`src/queue.rs`)
-Manages worker execution threads pulling from a thread-safe lock-free ring buffer (`crossbeam-channel`).
-```rust
-pub enum RuntimeMode {
-    Run,
-    Trainer,
-}
-
-pub struct EventPacket {
-    pub target_id: u32,
-    pub magnitude: f32,
-    pub source_id: Option<u32>,
-}
-```
-
-### 3. The Guard Lifecycle Loop (`src/guard.rs`)
-A transactional execution framework. When an event fires in Trainer Mode, it builds a localized execution scope on the stack.
-```text
-                  [ Incoming Event Packet ]
-                             │
-                             ▼
-         [ Worker Thread Allocates Temporary Guard Scope ]
-                             │
-            ┌────────────────┴────────────────┐
-            ▼                                 ▼
-   [ Apply Potential ]               [ Evaluate Threshold ]
-  Modifies local 16 bytes            If Fired, extend Guard Chain
-            │                                 │
-            └────────────────┬────────────────┘
-                             │
-                             ▼
-    [ Outcome Evaluated / Propagate Guard Backwards ]
-    Traverses open session path -> Commits weight adjust
-                             │
-                             ▼
-             [ Guard Automatically Drops ]
-           Primes memory block for next thread
-```
-
-# AG News Example Output
-
-```text
-====================================================================
-📰 AG News 120,000 Dataset Classification PoC 📰
-====================================================================
-
---- Step 1: Building Vocabulary from 120,000 Training Samples ---
-Vocabulary built successfully!
-  Top 1,000 most frequent words selected.
-  Total Neuron Field Size: 1004 neurons
-
---- Step 2: Training on 120,000 Samples (Trainer Mode) ---
-Applying the Guard feedback loop over the entire dataset...
-  Processed 30000/120,000 samples...
-  Processed 60000/120,000 samples...
-  Processed 90000/120,000 samples...
-Training completed in 3.32s!
-
---- Step 3: Evaluating on 7,600 Test Samples (Run Mode) ---
-Evaluation Complete!
-  Accuracy: 80.17% (6092/7599)
-
---- Confusion Matrix ---
-  Actual \ Predicted | World | Sports | Business | Sci/Tech
-  -------------------|-------|--------|----------|---------
-  World News         |  1518 |    163 |      147 |       72
-  Sports             |    61 |   1724 |       56 |       59
-  Business           |   139 |    110 |     1400 |      250
-  Sci/Tech           |   108 |    116 |      226 |     1450
-====================================================================
-```
-
 
 ---
 
 ## License
 
-This project is licensed under the **Apache License 2.0**. 
-
-Under this license, you are free to copy, modify, distribute, and sell this software, including for commercial, closed-source products, provided that you include the original copyright and license notice. See the [LICENSE](LICENSE) file for the full license text.
+This project is licensed under the **Apache License 2.0**.

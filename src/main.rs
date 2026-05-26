@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use neuron_poc::memory::NeuronField;
-use neuron_poc::train::propagate_trainer;
+use neuronguard::memory::NeuronField;
+use neuronguard::train::propagate_trainer;
 
 fn main() {
     println!("====================================================");
@@ -120,8 +120,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neuron_poc::queue::{EventPacket, EventQueue};
-    use neuron_poc::run::propagate_run;
+    use neuronguard::queue::{EventPacket, EventQueue};
+    use neuronguard::run::propagate_run;
 
     #[test]
     fn test_run_mode_flight() {

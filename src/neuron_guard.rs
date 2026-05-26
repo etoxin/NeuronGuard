@@ -267,6 +267,9 @@ impl Drop for ParallelRouter {
     }
 }
 
+unsafe impl Send for ParallelRouter {}
+unsafe impl Sync for ParallelRouter {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

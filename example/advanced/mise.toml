@@ -1,0 +1,7 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks.run]
+description = "Run the NeuronGuard Advanced Multi-Threaded Simulation"
+run = "uv run --no-project python main.py"
