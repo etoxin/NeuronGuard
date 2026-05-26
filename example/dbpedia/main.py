@@ -14,6 +14,7 @@ This example showcases:
 
 import csv
 import os
+import random
 import re
 import time
 
@@ -189,9 +190,8 @@ def main():
             field.train_stream([i], max_idx, 15, 0)
 
         print("--- Step 2: Training on 560,000 Samples (Trainer Mode) ---")
-        start_time = time.time()
-        sample_count = 0
-
+        # Load training records into memory for shuffling to prevent catastrophic forgetting
+        train_records = []
         with open(train_file_path, mode="r", encoding="utf-8") as f:
             rdr = csv.reader(f)
             for record in rdr:
@@ -207,11 +207,21 @@ def main():
                     vocab_map[token] for token in tokens if token in vocab_map
                 ]
                 if word_indices:
-                    field.train_stream(word_indices, cat_idx, 5, 15)
+                    train_records.append((cat_idx, word_indices))
 
-                sample_count += 1
-                if sample_count % 100000 == 0:
-                    print(f"  Processed {sample_count}/560,000 samples...")
+        # Shuffle the training records
+        random.shuffle(train_records)
+        print(f"  Loaded {len(train_records):,} training records.")
+
+        start_time = time.time()
+        sample_count = 0
+
+        for cat_idx, word_indices in train_records:
+            field.train_stream(word_indices, cat_idx, 5, 1)
+
+            sample_count += 1
+            if sample_count % 100000 == 0:
+                print(f"  Processed {sample_count}/560,000 samples...")
 
         duration = time.time() - start_time
         print(f"Training completed in {duration:.2f}s!")
