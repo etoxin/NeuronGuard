@@ -16,6 +16,32 @@ By aligning all core structures to 64-byte boundaries, `neuronguard` eliminates 
 
 ---
 
+## Why NeuronGuard? (Generalized Use Cases)
+
+`neuronguard` is not a general-purpose deep learning framework like PyTorch or TensorFlow. Instead, it is a highly specialized, bare-metal neuromorphic event engine designed for edge intelligence, real-time control, and high-frequency event processing.
+
+### 1. High-Throughput Machine Learning & Classification
+* **The Challenge**: Traditional machine learning libraries (like PyTorch or scikit-learn) have heavy runtime overheads, large memory footprints, and require GPU acceleration to process high-volume data streams quickly.
+* **The NeuronGuard Solution**: `neuronguard` maps inputs directly to cache-aligned neuromorphic structures. It performs classification (text, tabular, or sensor data) in **microseconds** on a single CPU core, fitting entirely within CPU L1/L2 cache lines (~62 KB) and achieving over 80-99% accuracy on standard datasets.
+
+### 2. High-Frequency Event Processing & Stream Ingestion
+* **The Challenge**: Processing millions of continuous event streams, telemetry, or network packets in Python is heavily bottlenecked by the Global Interpreter Lock (GIL) and lock contention.
+* **The NeuronGuard Solution**: `neuronguard` drops the Python GIL instantly during stream processing. This allows multiple concurrent Python threads to ingest and evaluate high-velocity streams in parallel across background worker threads with zero lock contention.
+
+### 3. Real-Time Edge Robotics & Control Systems
+* **The Challenge**: Robotic coordination (like walking gaits or motor control) requires continuous, low-power feedback loops. Traditional control theory is rigid, while deep reinforcement learning is too computationally heavy for edge microcontrollers.
+* **The NeuronGuard Solution**: The `SpatiotemporalEnsembleMesh` implements biological Central Pattern Generators (CPGs) that resonate rhythmically to coordinate motors. It supports real-time transactional re-patching (Guard/Lease) to instantly self-stabilize when physical perturbations (like slips or pushes) are detected.
+
+### 4. On-Device Continuous Learning & Adaptive Systems
+* **The Challenge**: Training models at the edge is nearly impossible due to the memory and compute overhead of backpropagation and gradient storage.
+* **The NeuronGuard Solution**: `neuronguard` uses biological topological plasticity (Hebbian-style updates). It learns on the fly using simple integer additions and subtractions, allowing models to continuously adapt to new patterns directly on low-power edge devices without cloud connectivity.
+
+### 5. Instant Hot-Reloading & Zero-Overhead Serialization
+* **The Challenge**: Hot-reloading models in production usually requires loading massive weights files, parsing complex formats (safetensors/pickle), and rebuilding computational graphs, taking seconds or minutes.
+* **The NeuronGuard Solution**: `neuronguard` weights are flat, pointerless binary arrays. The entire model state can be saved or hot-reloaded in **under 1 millisecond**, enabling instant, zero-downtime production updates.
+
+---
+
 ## Installation
 
 This project uses [mise](https://mise.jdx.dev/) and [uv](https://github.com/astral-sh/uv) to manage toolchains and tasks.
@@ -123,89 +149,6 @@ An advanced simulation of an insectoid rigid-body walking gait driven by the rhy
 
 ---
 
-## Usage Examples
-
-### 1. Minimal Inference & Decay Loop
-```python
-import neuronguard as ng
-import time
-
-# Initialize Local Biological Cortex (1000 Sensory -> 4 Motor Neurons)
-cortex = ng.NeuronGuardField(sensory_count=1000, motor_count=4)
-
-# Process incoming sensory stimuli tokens (drops GIL instantly)
-active_stimuli = [42, 108, 512]
-triggered_motor_id = cortex.process_stream(active_stimuli, training_mode=True)
-
-print(f"Stimuli {active_stimuli} ➔ Triggered Motor Neuron: {triggered_motor_id}")
-
-# Run background metabolic decay loop
-cortex.tick_decay(decay_factor=0.90)
-```
-
-### 2. Supervised Learning (Trainer Mode)
-```python
-import neuronguard as ng
-
-cortex = ng.NeuronGuardField(sensory_count=100, motor_count=3)
-
-# Train Sensory Neuron 2 to target Motor Neuron 2
-# Amplifies correct pathway (+20) and suppresses competing pathways (-5)
-cortex.train_stream(
-    sensory_tokens=[2], 
-    correct_motor_id=2, 
-    amplify_delta=20, 
-    suppress_delta=5
-)
-
-# Verify the training worked
-cortex.reset_potentials()
-winning_motor_id = cortex.process_stream([2], training_mode=False)
-print(f"Winner: Motor Neuron {winning_motor_id} (Expected: 2)")
-```
-
-### 3. GIL-Free Multi-Threaded Ingestion
-```python
-import threading
-import time
-import neuronguard as ng
-
-cortex = ng.NeuronGuardField(sensory_count=5000, motor_count=8)
-
-def worker_thread():
-    for _ in range(1000):
-        # Process streams concurrently without Python-level lock contention
-        cortex.process_stream([42, 108, 2048], training_mode=False)
-        time.sleep(0.001)
-
-threads = [threading.Thread(target=worker_thread) for _ in range(4)]
-for t in threads: t.start()
-for t in threads: t.join()
-print("Successfully processed concurrent streams with zero GIL bottlenecks!")
-```
-
-### 4. Spatiotemporal Mesh & Gait Simulation
-```python
-import neuronguard as ng
-
-sim = ng.PyInsectoidSimulation()
-
-# Run 10 steps of steady walking gait
-for step in range(10):
-    sim.step(training_mode=False, decay_factor=0.90)
-    print(f"Leg Phases: {sim.get_phases()}")
-
-# Inject sudden perturbation and trigger transactional re-patching
-sim.step(training_mode=True, correct_target=0, decay_factor=0.90)
-
-# Retrieve structural mutations emitted by the Guard/Lease pattern
-mutations = sim.get_structural_mutations()
-for token_id, evicted, new_target, ts in mutations:
-    print(f"Token {token_id}: Evicted {evicted} ➔ Patched to {new_target} at {ts} us")
-```
-
----
-
 ## Performance & Benchmarks
 
 | Dataset / Task | Samples | Classes | Sensory Neurons | Training Time | Accuracy |
@@ -218,11 +161,78 @@ for token_id, evicted, new_target, ts in mutations:
 
 ---
 
-## Developer Tasks
+## Core Concept & Architecture
 
-You can run all library and extension tasks cleanly using `mise`:
+At its core, `neuronguard` operates on a hardware-conscious, matrix-free neuromorphic design. Instead of performing heavy floating-point matrix multiplications (like traditional deep learning), it models intelligence as a network of **cache-aligned, thread-bounded neurons** that communicate via discrete event spikes.
+
+### 1. Parallel Stream Ingestion & Routing
+When a list of active sensory tokens is presented, the engine drops the Python GIL and broadcasts the active neurons to a parallel thread pool. Each thread evaluates a specific connection index in parallel, performing lock-free atomic additions directly onto the motor potentials.
+
+```text
+               [ Incoming Sensory Tokens ] (e.g., [42, 108, 512])
+                           │
+                           ▼
+               ┌───────────────────────┐
+               │  NeuronGuardField     │
+               │ (Drops Python GIL)    │
+               └───────────┬───────────┘
+                           │
+             ┌─────────────┴─────────────┐
+             ▼                           ▼
+   ┌───────────────────┐       ┌───────────────────┐
+   │ Sensory Neuron 42 │       │ Sensory Neuron 108│  <─── Cache-Aligned (64-byte)
+   │  (Cache Line 42)  │       │ (Cache Line 108)  │       ThreadBoundedNeurons
+   └─────────┬─────────┘       └─────────┬─────────┘
+             │                           │
+             │ (Parallel Broadcast)      │ (Parallel Broadcast)
+             ▼                           ▼
+   ┌───────────────────────────────────────────────┐
+   │                ParallelRouter                 │  <─── Drops GIL, lock-free
+   │   [Thread 0]   [Thread 1]   ...   [Thread 7]  │       atomic evaluations
+   └───────┬────────────┬─────────────────┬────────┘
+           │            │                 │
+           ▼            ▼                 ▼
+   ┌───────────────────────────────────────────────┐
+   │               Motor Potentials                │  <─── Atomic additions
+   │  [Motor 0]     [Motor 1]    ...   [Motor N]   │       straight to memory
+   └───────────────────────────────────────────────┘
+                           │
+                           ▼
+              [ Winning Motor Neuron ID ] (Highest Potential)
+```
+
+### 2. Guard/Lease Transactional Plasticity
+To perform safe concurrent learning (topological plasticity) without global locks, `neuronguard` uses a transactional lease pattern. Before mutating a neuron's connections, a thread must acquire a lock-free lease on that neuron's specific memory address using an atomic compare-and-swap (CAS) operation on its padding bytes.
+
+```text
+           ┌────────────────────────────────────────┐
+           │ Attempt to Acquire Transactional Lease │
+           └───────────────────┬────────────────────┘
+                               │
+                Atomic CAS on Padding Bytes (0 ➔ 1)
+                               │
+                     ┌─────────┴─────────┐
+                     ▼                   ▼
+                 [Success]           [Failure]
+                     │                   │
+         ┌───────────┴───────────┐  ┌────┴────────────────────────┐
+         │ Safe Concurrent       │  │ Skip or Retry               │
+         │ Topological Plasticity│  │ (Prevents Write Contention) │
+         └───────────┬───────────┘  └─────────────────────────────┘
+                     │
+          Release Lease (1 ➔ 0)
+```
+
+---
+
+## Developer Tasks & Experiments
+
+All experiments, benchmarks, and guides are located in the `example/` directory. You can list all available tasks by running `mise tasks` or simply run them cleanly using `mise run <task_name>`:
 
 ```bash
+# List all available tasks and experiments
+mise tasks
+
 # Run the Getting Started Guide
 mise run getting_started
 
