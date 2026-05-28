@@ -279,6 +279,9 @@ mise run giant_dataset_benchmark
 # Run the Pure Python Static Expression & Gesture Cloner
 mise run expression_cloner
 
+# Run the Wikipedia Structured Dataset Classifier & Router (Streaming 10.4M articles)
+mise run wikipedia_classifier
+
 # Run Rust unit tests
 mise run test
 

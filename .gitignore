@@ -24,6 +24,8 @@ target
 example/ag_news/data/
 example/dbpedia/dbpedia_csv/
 example/fraud_scanner/data/
+example/wikipedia_classifier/wikipedia_weights.bin
+example/wikipedia_classifier/wikipedia_vocab.txt
 
 # Generated Model Weights and Vocabularies
 *.bin
