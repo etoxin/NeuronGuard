@@ -46,20 +46,20 @@ uv run --no-project python example/wikipedia_classifier/main.py --force-retrain
 ```text
 --- Step 4: Evaluating Accuracy on Test Split ---
 Streaming the next 10,000 articles for evaluation...
-Skipping the first 100,000 training/vocab articles to reach the test split...
+Resolving data files: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 86/86 [00:00<00:00, 20055.05it/s]
+Resolving data files: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 86/86 [00:00<00:00, 20397.54it/s]
+Skipping the first 1,000,000 training/vocab articles to reach the test split...
   Evaluated 2,000/10,000 test samples...
   Evaluated 4,000/10,000 test samples...
   Evaluated 6,000/10,000 test samples...
   Evaluated 8,000/10,000 test samples...
-  Evaluated 10,000/10,000 test samples...
 Evaluation Complete!
-  ➔ Overall Accuracy: 84.62% (8,462/10,000)
-  ➔ Evaluation Time : 0.45s (22222.22 samples/sec)
+  ➔ Overall Accuracy: 90.13% (9,013/10,000)
+  ➔ Evaluation Time : 12.46s (802.85 samples/sec)
 
 --- Step 5: Live Routing Examples ---
   Input   : "Quantum mechanics is a fundamental theory in physics that provides a description of the physical properties of nature at the scale of atoms and subatomic particles."
-  ➔ Winner: SCIENCE & TECHNOLOGY (Expected: SCIENCE & TECHNOLOGY)
-...
+  ➔ Winner: BIOGRAPHY & PEOPLE (Expected: SCIENCE & TECHNOLOGY)
 
   Input   : "The Amazon River in South America is the largest river by discharge volume of water in the world, flowing through Peru, Colombia, and Brazil."
   ➔ Winner: GEOGRAPHY & PLACES (Expected: GEOGRAPHY & PLACES)
@@ -68,10 +68,10 @@ Evaluation Complete!
   ➔ Winner: BIOGRAPHY & PEOPLE (Expected: BIOGRAPHY & PEOPLE)
 
   Input   : "The French Revolution was a period of radical political and societal change in France that began with the Estates General of 1789."
-  ➔ Winner: HISTORY & EVENTS (Expected: HISTORY & EVENTS)
+  ➔ Winner: BIOGRAPHY & PEOPLE (Expected: HISTORY & EVENTS)
 
   Input   : "The Starry Night is an oil-on-canvas painting by the Dutch Post-Impressionist painter Vincent van Gogh, painted in June 1889."
-  ➔ Winner: ARTS & CULTURE (Expected: ARTS & CULTURE)
+  ➔ Winner: BIOGRAPHY & PEOPLE (Expected: ARTS & CULTURE)
 
 ====================================================================
 🎉 Wikipedia Classifier & Router completed successfully! 🎉
