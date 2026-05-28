@@ -62,6 +62,15 @@ run = "uv run --no-project python example/giant_dataset/pytorch_benchmark.py"
 description = "Run the NeuronGuard Pure Python Online Expression Cloner & Detector"
 run = "uv run --no-project python example/expression_cloner/main.py"
 
+[tasks.wikipedia_classifier]
+description = "Run the Wikipedia Structured Dataset Classifier & Router"
+run = "uv run --no-project python example/wikipedia_classifier/main.py"
+
+[tasks.wikipedia_classifier_large]
+description = "Run the Wikipedia Structured Dataset Classifier & Router"
+run = "uv run --no-project python example/wikipedia_classifier/main.py --train-samples 1000000 --test-samples 10000 --force-retrain"
+
+
 [tasks.run]
 run = "cargo run"
 
