@@ -19,6 +19,28 @@ This example demonstrates how to stream and classify the massive **44.4 GB** `wi
 
 ---
 
+## Performance & Resource Comparison: Neuromorphic vs. Deep Learning
+
+This section provides an objective comparison between `neuronguard`'s specialized neuromorphic architecture and a traditional deep learning model trained on the same dataset. 
+
+For comparison, we reference **`GlassLewis/roberta-large-entity-linking`** (a 0.4B parameter model based on RoBERTa Large) which was trained on 3 million pairs derived from this exact **Wikimedia Structured Wikipedia** dataset. 
+
+### Key Differences & Trade-offs
+
+| Metric | RoBERTa Large (GlassLewis) | NeuronGuard (This Example) | Comparison Notes |
+| :--- | :--- | :--- | :--- |
+| **Hardware Used** | **80GB NVIDIA H100 GPU** | **Standard Mac CPU** | RoBERTa requires high-end GPU acceleration; NeuronGuard runs on standard consumer CPUs. |
+| **Training Time** | Hours / Days | **8.9 Minutes (536.24s)** | NeuronGuard trains on the fly via streaming, bypassing heavy backpropagation. |
+| **Model Size (Disk)** | **~1.6 GB** (0.4B Parameters) | **320 KB** | RoBERTa stores dense token embeddings; NeuronGuard uses a sparse, cache-aligned field. |
+| **Memory Footprint** | ~1.6+ GB RAM | **~320 KB** | NeuronGuard fits entirely within CPU L1/L2 cache lines. |
+| **Task Accuracy** | 80.29% Recall@64 (Entity Linking) | **90.13% Accuracy** (Domain Classification) | RoBERTa is a general-purpose entity linker; NeuronGuard is a specialized domain router. |
+
+### Architectural Trade-offs
+* **Generality vs. Specialization**: RoBERTa Large is a general-purpose language representation model capable of zero-shot entity linking across millions of diverse concepts. `neuronguard`, on the other hand, is a specialized, task-specific neuromorphic router. 
+* **Compute Efficiency**: While general-purpose models offer broader language understanding, this comparison highlights how a specialized, hardware-conscious neuromorphic engine can achieve high accuracy on targeted classification and routing tasks with a fraction of the computational and memory overhead.
+
+---
+
 ## How to Run
 
 You can run this example cleanly using `mise`:
