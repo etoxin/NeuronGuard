@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>NeuronGuard: Babylon.js Bipedal Robot Sandbox</title>
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                background-color: #0b0f19;
+                color: #e2e8f0;
+                font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+                overflow-x: hidden;
+            }
+            header {
+                background: linear-gradient(90deg, #1e1b4b 0%, #0f172a 100%);
+                padding: 15px 30px;
+                border-bottom: 1px solid #312e81;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            h1 {
+                margin: 0;
+                font-size: 24px;
+                font-weight: 700;
+                letter-spacing: 1px;
+                background: linear-gradient(to right, #38bdf8, #818cf8);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+            }
+            .badge {
+                background-color: #a855f7;
+                color: #f1f5f9;
+                padding: 4px 10px;
+                border-radius: 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            .container {
+                display: flex;
+                height: calc(100vh - 75px);
+            }
+            .sidebar {
+                width: 340px;
+                background-color: #0f172a;
+                border-right: 1px solid #1e293b;
+                padding: 20px;
+                box-sizing: border-box;
+                display: flex;
+                flex-direction: column;
+                gap: 15px;
+                overflow-y: auto;
+            }
+            .main-content {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                position: relative;
+            }
+            .viewports {
+                display: flex;
+                flex: 1;
+                gap: 1px;
+                background-color: #1e293b;
+            }
+            .viewport {
+                flex: 1;
+                position: relative;
+                background-color: #0b0f19;
+                overflow: hidden;
+            }
+            .viewport-title {
+                position: absolute;
+                top: 15px;
+                left: 20px;
+                font-size: 14px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                color: #94a3b8;
+                z-index: 10;
+                background-color: rgba(15, 23, 42, 0.85);
+                padding: 6px 12px;
+                border-radius: 6px;
+                border: 1px solid #1e293b;
+            }
+            .panel {
+                background-color: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 8px;
+                padding: 15px;
+            }
+            .panel-title {
+                margin-top: 0;
+                margin-bottom: 12px;
+                font-size: 16px;
+                font-weight: 600;
+                color: #f1f5f9;
+                border-bottom: 1px solid #334155;
+                padding-bottom: 6px;
+            }
+            button {
+                background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+                color: white;
+                border: none;
+                padding: 10px 15px;
+                border-radius: 6px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+                width: 100%;
+                margin-bottom: 8px;
+            }
+            button:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            }
+            button.secondary {
+                background: linear-gradient(135deg, #475569 0%, #334155 100%);
+            }
+            button.danger {
+                background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+            }
+            .slider-group {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                margin-bottom: 12px;
+            }
+            .slider-group label {
+                font-size: 13px;
+                color: #94a3b8;
+                display: flex;
+                justify-content: space-between;
+            }
+            input[type="range"], select {
+                width: 100%;
+                accent-color: #3b82f6;
+                background-color: #0f172a;
+                color: #f1f5f9;
+                border: 1px solid #475569;
+                border-radius: 4px;
+                padding: 6px;
+                box-sizing: border-box;
+            }
+            .log-container {
+                flex: 1;
+                font-family: "Courier New", Courier, monospace;
+                font-size: 12px;
+                background-color: #020617;
+                border: 1px solid #1e293b;
+                border-radius: 6px;
+                padding: 10px;
+                overflow-y: auto;
+                max-height: 180px;
+                color: #38bdf8;
+            }
+            .log-entry {
+                margin-bottom: 4px;
+                line-height: 1.4;
+            }
+            .log-mutation {
+                color: #f43f5e;
+                font-weight: bold;
+            }
+            .log-success {
+                color: #10b981;
+            }
+            canvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                display: block;
+            }
+        </style>
+        <!-- Babylon.js Library -->
+        <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    </head>
+    <body>
+        <header>
+            <div style="display: flex; align-items: center; gap: 15px">
+                <h1>NeuronGuard</h1>
+                <span class="badge">Bipedal Robot Sandbox</span>
+            </div>
+            <div style="font-size: 14px; color: #94a3b8">
+                Target: Neuromorphic Bipedal Gait Controller
+            </div>
+        </header>
+
+        <div class="container">
+            <div class="sidebar">
+                <div class="panel">
+                    <div class="panel-title">Robot Configuration</div>
+                    <div class="slider-group">
+                        <label><span>Gait Style</span></label>
+                        <select id="select-gait">
+                            <option value="walk">Standard Walk</option>
+                            <option value="run">Athletic Run</option>
+                            <option value="sneak">Stealth Sneak</option>
+                        </select>
+                    </div>
+                    <div class="slider-group">
+                        <label><span>Arm Swing Intensity</span><span id="val-arms">1.0x</span></label>
+                        <input
+                            type="range"
+                            id="slide-arms"
+                            min="0.0"
+                            max="2.0"
+                            step="0.1"
+                            value="1.0"
+                        />
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-title">Simulation Controls</div>
+                    <button id="btn-play">Pause Simulation</button>
+                    <button id="btn-perturb" class="danger">
+                        Inject Perturbation (Push/Slip)
+                    </button>
+                    <button id="btn-train" class="secondary">
+                        Toggle Training: ON
+                    </button>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-title">Parameters</div>
+                    <div class="slider-group">
+                        <label><span>Decay Factor</span><span id="val-decay">0.90</span></label>
+                        <input
+                            type="range"
+                            id="slide-decay"
+                            min="0.50"
+                            max="0.99"
+                            step="0.01"
+                            value="0.90"
+                        />
+                    </div>
+                    <div class="slider-group">
+                        <label><span>Gait Speed</span><span id="val-speed">1.0x</span></label>
+                        <input
+                            type="range"
+                            id="slide-speed"
+                            min="0.5"
+                            max="2.0"
+                            step="0.1"
+                            value="1.0"
+                        />
+                    </div>
+                </div>
+
+                <div class="panel" style="display: flex; flex-direction: column; flex: 1">
+                    <div class="panel-title">Live Telemetry Log</div>
+                    <div class="log-container" id="log">
+                        <div class="log-entry log-success">
+                            [SYSTEM] Babylon.js Bipedal sandbox initialized.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="main-content">
+                <div class="viewports">
+                    <div class="viewport" id="viewport-robot">
+                        <div class="viewport-title">3D Articulated Biped (Babylon.js)</div>
+                        <canvas id="canvas-robot"></canvas>
+                    </div>
+                    <div class="viewport" id="viewport-mesh">
+                        <div class="viewport-title">3D Neuromorphic Mesh (Babylon.js)</div>
+                        <canvas id="canvas-mesh"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // --- Core Neuromorphic Mesh Implementation in JS (Matching Rust) ---
+            const MAX_FORWARD_SLOTS = 6;
+            const MAX_BACKWARD_SLOTS = 4;
+
+            class PermanentNeuromorphicLine {
+                constructor(tokenId) {
+                    this.tokenId = tokenId;
+                    this.activeForward = 0;
+                    this.activeBackward = 0;
+                    this.forwardTargets = new Array(MAX_FORWARD_SLOTS).fill(0);
+                    this.backwardTargets = new Array(MAX_BACKWARD_SLOTS).fill(0);
+                }
+
+                updateBackwardTargets(history) {
+                    const count = Math.min(history.length, MAX_BACKWARD_SLOTS);
+                    for (let i = 0; i < count; i++) {
+                        this.backwardTargets[i] = history[i];
+                    }
+                    this.activeBackward = count;
+                }
+
+                updateOrEvictForwardTarget(correctTarget, accumulators) {
+                    for (let i = 0; i < this.activeForward; i++) {
+                        if (this.forwardTargets[i] === correctTarget) {
+                            return null;
+                        }
+                    }
+
+                    if (this.activeForward < MAX_FORWARD_SLOTS) {
+                        this.forwardTargets[this.activeForward] = correctTarget;
+                        this.activeForward++;
+                        return null;
+                    } else {
+                        let weakestIdx = 0;
+                        let weakestVal = Infinity;
+
+                        for (let i = 0; i < MAX_FORWARD_SLOTS; i++) {
+                            const target = this.forwardTargets[i];
+                            const val = accumulators[target] || 0;
+                            if (val < weakestVal) {
+                                weakestVal = val;
+                                weakestIdx = i;
+                            }
+                        }
+
+                        const evicted = this.forwardTargets[weakestIdx];
+                        this.forwardTargets[weakestIdx] = correctTarget;
+                        return evicted;
+                    }
+                }
+            }
+
+            class PermanentSpatiotemporalEnsembleMesh {
+                constructor(sizePerField) {
+                    this.sizePerField = sizePerField;
+                    this.size = sizePerField * 3;
+                    this.lines = [];
+                    for (let i = 0; i < this.size; i++) {
+                        this.lines.push(new PermanentNeuromorphicLine(i));
+                    }
+                    this.globalAccumulators = new Array(this.size).fill(0);
+                    this.activeHistory = [];
+                    this.mutationEvents = [];
+                }
+
+                processFrame(tokens, trainingMode, correctTarget, decayFactor) {
+                    for (const tokenId of tokens) {
+                        if (tokenId >= this.size) continue;
+
+                        const line = this.lines[tokenId];
+
+                        for (let i = 0; i < line.activeForward; i++) {
+                            const target = line.forwardTargets[i];
+                            if (target < this.size) {
+                                this.globalAccumulators[target]++;
+                            }
+                        }
+
+                        for (let i = 0; i < line.activeBackward; i++) {
+                            const target = line.backwardTargets[i];
+                            if (target < this.size) {
+                                this.globalAccumulators[target]++;
+                            }
+                        }
+
+                        line.updateBackwardTargets(this.activeHistory);
+
+                        this.activeHistory.unshift(tokenId);
+                        if (this.activeHistory.length > MAX_BACKWARD_SLOTS) {
+                            this.activeHistory.pop();
+                        }
+
+                        if (trainingMode && correctTarget !== null && correctTarget !== undefined) {
+                            const evicted = line.updateOrEvictForwardTarget(
+                                correctTarget,
+                                this.globalAccumulators,
+                            );
+                            if (evicted !== null) {
+                                this.mutationEvents.push({
+                                    tokenId,
+                                    evictedTarget: evicted,
+                                    newTarget: correctTarget,
+                                    timestampUs: Date.now() * 1000,
+                                });
+                            }
+                        }
+                    }
+
+                    this.decay(decayFactor);
+                }
+
+                decay(decayFactor) {
+                    for (let i = 0; i < this.size; i++) {
+                        if (this.globalAccumulators[i] > 0) {
+                            this.globalAccumulators[i] = Math.floor(
+                                this.globalAccumulators[i] * decayFactor,
+                            );
+                        }
+                    }
+                }
+
+                getActiveNodes() {
+                    const active = [];
+                    for (let i = 0; i < this.size; i++) {
+                        if (this.globalAccumulators[i] > 0) {
+                            active.push(i);
+                        }
+                    }
+                    return active;
+                }
+
+                getLoopIntensities() {
+                    const intensities = {};
+                    for (let i = 0; i < this.size; i++) {
+                        if (this.globalAccumulators[i] > 0) {
+                            intensities[i] = this.globalAccumulators[i];
+                        }
+                    }
+                    return intensities;
+                }
+
+                getStructuralMutations() {
+                    const events = [...this.mutationEvents];
+                    this.mutationEvents = [];
+                    return events;
+                }
+            }
+
+            // --- Bipedal Robot Simulation ---
+            // Node mapping:
+            // 0: Left Leg
+            // 1: Right Leg
+            // 2: Left Arm
+            // 3: Right Arm
+            class BipedSimulation {
+                constructor(gaitStyle) {
+                    this.gaitStyle = gaitStyle;
+                    this.mesh = new PermanentSpatiotemporalEnsembleMesh(100);
+                    this.phases = [0.0, Math.PI, Math.PI, 0.0]; // Left Leg, Right Leg, Left Arm, Right Arm
+                    this.velocities = [0.1, 0.1, 0.1, 0.1];
+                    this.trainingMode = true;
+                    this.decayFactor = 0.9;
+                    this.speedMultiplier = 1.0;
+                    this.armSwingMultiplier = 1.0;
+
+                    // Initialize biological CPG loop: Left Leg (0) -> Right Arm (3) -> Right Leg (1) -> Left Arm (2) -> Left Leg (0)
+                    const sequence = [0, 3, 1, 2];
+                    for (let i = 0; i < 4; i++) {
+                        const current = sequence[i];
+                        const next = sequence[(i + 1) % 4];
+                        const prev = sequence[(i + 3) % 4];
+
+                        const line = this.mesh.lines[current];
+                        line.forwardTargets[0] = next;
+                        line.activeForward = 1;
+
+                        line.backwardTargets[0] = prev;
+                        line.activeBackward = 1;
+                    }
+                }
+
+                step(correctTarget = null) {
+                    // 1. Tokenize state
+                    let maxPhase = -1;
+                    let spatialNode = 0;
+                    for (let i = 0; i < 4; i++) {
+                        if (this.phases[i] > maxPhase) {
+                            maxPhase = this.phases[i];
+                            spatialNode = i;
+                        }
+                    }
+                    const spatialToken = spatialNode;
+
+                    const avgVel = this.velocities.reduce((a, b) => a + b, 0) / 4;
+                    const velBucket = avgVel > 0.15 ? 2 : avgVel > 0.05 ? 1 : 0;
+                    const velocityToken = 100 + velBucket;
+
+                    const diff = Math.abs(this.phases[0] - this.phases[1]);
+                    const diffBucket = diff > 2.0 ? 2 : diff > 1.0 ? 1 : 0;
+                    const phaseDeltaToken = 200 + diffBucket;
+
+                    const tokens = [spatialToken, velocityToken, phaseDeltaToken];
+
+                    // 2. Process frame
+                    this.mesh.processFrame(
+                        tokens,
+                        this.trainingMode,
+                        correctTarget,
+                        this.decayFactor,
+                    );
+
+                    // 3. Update phases based on CPG energy
+                    for (let i = 0; i < 4; i++) {
+                        const energy = this.mesh.globalAccumulators[i] || 0;
+                        this.velocities[i] = (0.05 + 0.01 * energy) * this.speedMultiplier;
+                        this.phases[i] += this.velocities[i];
+                        if (this.phases[i] > 2 * Math.PI) {
+                            this.phases[i] -= 2 * Math.PI;
+                        }
+                    }
+                }
+            }
+
+            // --- Babylon.js Visualizer ---
+            let engineRobot, sceneRobot, cameraRobot;
+            let engineMesh, sceneMesh, cameraMesh;
+            let torso, head;
+            let leftLeg = {}, rightLeg = {};
+            let leftArm = {}, rightArm = {};
+            let meshNodes = [];
+            let meshEdges = [];
+            let sim;
+            let isPlaying = true;
+
+            const nodeColors = [
+                new BABYLON.Color3(0.22, 0.74, 0.97), // Left Leg (Cyan)
+                new BABYLON.Color3(0.51, 0.55, 0.97), // Right Leg (Indigo)
+                new BABYLON.Color3(0.2, 0.83, 0.6),  // Left Arm (Emerald)
+                new BABYLON.Color3(0.98, 0.75, 0.14), // Right Arm (Amber)
+            ];
+
+            function initBabylon() {
+                // 1. Robot Viewport
+                const canvasRobot = document.getElementById("canvas-robot");
+                engineRobot = new BABYLON.Engine(canvasRobot, true);
+                sceneRobot = new BABYLON.Scene(engineRobot);
+                sceneRobot.clearColor = new BABYLON.Color4(0.04, 0.06, 0.1, 1.0);
+
+                cameraRobot = new BABYLON.ArcRotateCamera(
+                    "cameraRobot",
+                    -Math.PI / 3,
+                    Math.PI / 2.2,
+                    4.5,
+                    new BABYLON.Vector3(0, 0.4, 0),
+                    sceneRobot
+                );
+                cameraRobot.attachControl(canvasRobot, true);
+                cameraRobot.lowerRadiusLimit = 2;
+                cameraRobot.upperRadiusLimit = 10;
+
+                const lightRobotAmbient = new BABYLON.HemisphericLight(
+                    "lightRobotAmbient",
+                    new BABYLON.Vector3(0, 1, 0),
+                    sceneRobot
+                );
+                lightRobotAmbient.intensity = 0.8;
+                lightRobotAmbient.groundColor = new BABYLON.Color3(0.1, 0.15, 0.25);
+
+                const lightRobotDir = new BABYLON.DirectionalLight(
+                    "lightRobotDir",
+                    new BABYLON.Vector3(-1, -2, -1),
+                    sceneRobot
+                );
+                lightRobotDir.position = new BABYLON.Vector3(5, 10, 5);
+                lightRobotDir.intensity = 1.2;
+
+                // Ground Grid
+                const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 30, height: 30 }, sceneRobot);
+                const groundMat = new BABYLON.StandardMaterial("groundMat", sceneRobot);
+                groundMat.diffuseColor = new BABYLON.Color3(0.08, 0.11, 0.18);
+                groundMat.specularColor = new BABYLON.Color3(0, 0, 0);
+                ground.material = groundMat;
+
+                const gridLines = [];
+                for (let i = -15; i <= 15; i += 1.5) {
+                    gridLines.push([new BABYLON.Vector3(i, 0.01, -15), new BABYLON.Vector3(i, 0.01, 15)]);
+                    gridLines.push([new BABYLON.Vector3(-15, 0.01, i), new BABYLON.Vector3(15, 0.01, i)]);
+                }
+                const gridSystem = BABYLON.MeshBuilder.CreateLineSystem("gridSystem", { lines: gridLines }, sceneRobot);
+                gridSystem.color = new BABYLON.Color3(0.18, 0.25, 0.35);
+
+                // 2. Mesh Viewport
+                const canvasMesh = document.getElementById("canvas-mesh");
+                engineMesh = new BABYLON.Engine(canvasMesh, true);
+                sceneMesh = new BABYLON.Scene(engineMesh);
+                sceneMesh.clearColor = new BABYLON.Color4(0.04, 0.06, 0.1, 1.0);
+
+                cameraMesh = new BABYLON.ArcRotateCamera(
+                    "cameraMesh",
+                    -Math.PI / 2,
+                    Math.PI / 2,
+                    6,
+                    new BABYLON.Vector3(0, 0, 0),
+                    sceneMesh
+                );
+                cameraMesh.attachControl(canvasMesh, true);
+                cameraMesh.lowerRadiusLimit = 3;
+                cameraMesh.upperRadiusLimit = 10;
+
+                const lightMesh = new BABYLON.HemisphericLight(
+                    "lightMesh",
+                    new BABYLON.Vector3(0, 1, 0),
+                    sceneMesh
+                );
+                lightMesh.intensity = 1.5;
+
+                // Build initial simulation
+                rebuildSimulation();
+
+                // Register Main Animation Loop
+                let stepCount = 0;
+                sceneRobot.registerBeforeRender(() => {
+                    if (isPlaying && sim) {
+                        stepCount++;
+                        sim.step();
+
+                        // Retrieve phases
+                        const [pLeftLeg, pRightLeg, pLeftArm, pRightArm] = sim.phases;
+
+                        // Define gait style modifiers
+                        let kneeBendModifier = 0.5;
+                        let hipSwingModifier = 0.4;
+                        let armSwingModifier = 0.35 * sim.armSwingMultiplier;
+                        let baseHeight = 0.9;
+                        let bobbingIntensity = 0.03;
+                        let forwardTilt = 0.0;
+
+                        if (sim.gaitStyle === "run") {
+                            kneeBendModifier = 0.8;
+                            hipSwingModifier = 0.6;
+                            armSwingModifier = 0.6 * sim.armSwingMultiplier;
+                            baseHeight = 0.85;
+                            bobbingIntensity = 0.06;
+                            forwardTilt = 0.15; // Tilt forward when running
+                        } else if (sim.gaitStyle === "sneak") {
+                            kneeBendModifier = 0.6;
+                            hipSwingModifier = 0.3;
+                            armSwingModifier = 0.15 * sim.armSwingMultiplier;
+                            baseHeight = 0.65; // Crouch low
+                            bobbingIntensity = 0.015;
+                            forwardTilt = 0.1;
+                        }
+
+                        // 1. Update Torso Bobbing, Tilt, and Yaw
+                        torso.position.y = baseHeight + Math.sin(pLeftLeg * 2) * bobbingIntensity;
+                        torso.rotation.x = forwardTilt;
+                        torso.rotation.y = Math.sin(pLeftLeg) * 0.06; // Torso yaw rotation to balance leg swing
+
+                        // 2. Animate Legs
+                        // Left Leg
+                        leftLeg.hip.rotation.x = Math.sin(pLeftLeg) * hipSwingModifier;
+                        const sLeftLeg = Math.sin(pLeftLeg);
+                        leftLeg.knee.rotation.x = sLeftLeg > 0 ? -sLeftLeg * kneeBendModifier : 0;
+
+                        // Right Leg
+                        rightLeg.hip.rotation.x = Math.sin(pRightLeg) * hipSwingModifier;
+                        const sRightLeg = Math.sin(pRightLeg);
+                        rightLeg.knee.rotation.x = sRightLeg > 0 ? -sRightLeg * kneeBendModifier : 0;
+
+                        // 3. Animate Arms (Opposite to leg swing for balance)
+                        // Left Arm (moves with Right Leg)
+                        leftArm.shoulder.rotation.x = Math.sin(pLeftArm) * armSwingModifier;
+                        leftArm.elbow.rotation.x = -Math.max(0, Math.sin(pLeftArm)) * 0.3;
+
+                        // Right Arm (moves with Left Leg)
+                        rightArm.shoulder.rotation.x = Math.sin(pRightArm) * armSwingModifier;
+                        rightArm.elbow.rotation.x = -Math.max(0, Math.sin(pRightArm)) * 0.3;
+
+                        // 4. Update Mesh 3D Visualization
+                        const activeNodes = sim.mesh.getActiveNodes();
+                        const intensities = sim.mesh.getLoopIntensities();
+
+                        // Flash active nodes
+                        meshNodes.forEach((node) => {
+                            if (activeNodes.includes(node.id)) {
+                                const intensity = intensities[node.id] || 1;
+                                const scale = 1 + intensity * 0.08;
+                                node.mesh.scaling.set(scale, scale, scale);
+                                node.material.emissiveColor = new BABYLON.Color3(0.8, 0.9, 1.0);
+                            } else {
+                                node.mesh.scaling.set(1, 1, 1);
+                                node.material.emissiveColor = node.baseColor.scale(0.25);
+                            }
+                        });
+
+                        // Glow loopback lines based on intensities
+                        meshEdges.forEach((edge) => {
+                            const fromIntensity = intensities[edge.from] || 0;
+                            const toIntensity = intensities[edge.to] || 0;
+                            const avgIntensity = (fromIntensity + toIntensity) / 2;
+
+                            if (avgIntensity > 0) {
+                                edge.mesh.color = new BABYLON.Color3(0.22, 0.74, 0.97);
+                            } else {
+                                edge.mesh.color = new BABYLON.Color3(0.28, 0.33, 0.41);
+                            }
+                        });
+
+                        // Log telemetry occasionally
+                        if (stepCount % 60 === 0) {
+                            logMessage(
+                                `Gait step ${stepCount}. Active Nodes: [${activeNodes.join(", ")}]`
+                            );
+                        }
+
+                        // Check for structural mutations
+                        const mutations = sim.mesh.getStructuralMutations();
+                        mutations.forEach((mut) => {
+                            logMessage(
+                                `STRUCTURAL MUTATION: Token ${mut.tokenId} evicted ${mut.evictedTarget} ➔ Patched to ${mut.newTarget}`,
+                                "log-mutation"
+                            );
+                        });
+                    }
+                });
+
+                // Render loops
+                engineRobot.runRenderLoop(() => {
+                    sceneRobot.render();
+                });
+                engineMesh.runRenderLoop(() => {
+                    sceneMesh.render();
+                });
+
+                window.addEventListener("resize", () => {
+                    engineRobot.resize();
+                    engineMesh.resize();
+                });
+            }
+
+            function rebuildSimulation() {
+                const preset = document.getElementById("select-gait").value;
+
+                // 1. Re-initialize simulation
+                const trainingMode = sim ? sim.trainingMode : true;
+                const decayFactor = sim ? sim.decayFactor : 0.90;
+                const speedMultiplier = sim ? sim.speedMultiplier : 1.0;
+                const armSwingMultiplier = sim ? sim.armSwingMultiplier : 1.0;
+
+                sim = new BipedSimulation(preset);
+                sim.trainingMode = trainingMode;
+                sim.decayFactor = decayFactor;
+                sim.speedMultiplier = speedMultiplier;
+                sim.armSwingMultiplier = armSwingMultiplier;
+
+                logMessage(`Initialized Bipedal robot with ${preset.toUpperCase()} gait.`, "log-success");
+
+                // 2. Rebuild Robot 3D Model
+                if (torso) {
+                    torso.dispose(false, true);
+                }
+
+                // Torso (Chassis)
+                torso = BABYLON.MeshBuilder.CreateBox("torso", {
+                    width: 0.45,
+                    height: 0.75,
+                    depth: 0.25
+                }, sceneRobot);
+                torso.position.y = 0.9;
+
+                const torsoMat = new BABYLON.StandardMaterial("torsoMat", sceneRobot);
+                torsoMat.diffuseColor = new BABYLON.Color3(0.12, 0.16, 0.23); // #1e293b
+                torsoMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+                torso.material = torsoMat;
+
+                // Head
+                head = BABYLON.MeshBuilder.CreateSphere("head", { diameter: 0.25 }, sceneRobot);
+                head.position.set(0, 0.5, 0);
+                head.parent = torso;
+                const headMat = new BABYLON.StandardMaterial("headMat", sceneRobot);
+                headMat.diffuseColor = new BABYLON.Color3(0.22, 0.29, 0.42);
+                head.material = headMat;
+
+                // Build Legs
+                // Left Leg (Node 0)
+                leftLeg.hip = BABYLON.MeshBuilder.CreateSphere("leftHip", { diameter: 0.12 }, sceneRobot);
+                leftLeg.hip.position.set(0.16, -0.38, 0);
+                leftLeg.hip.parent = torso;
+
+                const leftLegMat = new BABYLON.StandardMaterial("leftLegMat", sceneRobot);
+                leftLegMat.diffuseColor = nodeColors[0];
+                leftLegMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+
+                const leftThigh = BABYLON.MeshBuilder.CreateCylinder("leftThigh", { height: 0.4, diameter: 0.07 }, sceneRobot);
+                leftThigh.position.y = -0.2;
+                leftThigh.parent = leftLeg.hip;
+                leftThigh.material = leftLegMat;
+
+                leftLeg.knee = BABYLON.MeshBuilder.CreateSphere("leftKnee", { diameter: 0.09 }, sceneRobot);
+                leftLeg.knee.position.y = -0.2;
+                leftLeg.knee.parent = leftThigh;
+
+                const leftShin = BABYLON.MeshBuilder.CreateCylinder("leftShin", { height: 0.4, diameter: 0.05 }, sceneRobot);
+                leftShin.position.y = -0.2;
+                leftShin.parent = leftLeg.knee;
+                const shinMat = new BABYLON.StandardMaterial("shinMat", sceneRobot);
+                shinMat.diffuseColor = new BABYLON.Color3(0.58, 0.64, 0.72);
+                leftShin.material = shinMat;
+
+                // Right Leg (Node 1)
+                rightLeg.hip = BABYLON.MeshBuilder.CreateSphere("rightHip", { diameter: 0.12 }, sceneRobot);
+                rightLeg.hip.position.set(-0.16, -0.38, 0);
+                rightLeg.hip.parent = torso;
+
+                const rightLegMat = new BABYLON.StandardMaterial("rightLegMat", sceneRobot);
+                rightLegMat.diffuseColor = nodeColors[1];
+                rightLegMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+
+                const rightThigh = BABYLON.MeshBuilder.CreateCylinder("rightThigh", { height: 0.4, diameter: 0.07 }, sceneRobot);
+                rightThigh.position.y = -0.2;
+                rightThigh.parent = rightLeg.hip;
+                rightThigh.material = rightLegMat;
+
+                rightLeg.knee = BABYLON.MeshBuilder.CreateSphere("rightKnee", { diameter: 0.09 }, sceneRobot);
+                rightLeg.knee.position.y = -0.2;
+                rightLeg.knee.parent = rightThigh;
+
+                const rightShin = BABYLON.MeshBuilder.CreateCylinder("rightShin", { height: 0.4, diameter: 0.05 }, sceneRobot);
+                rightShin.position.y = -0.2;
+                rightShin.parent = rightLeg.knee;
+                rightShin.material = shinMat;
+
+                // Build Arms
+                // Left Arm (Node 2)
+                leftArm.shoulder = BABYLON.MeshBuilder.CreateSphere("leftShoulder", { diameter: 0.1 }, sceneRobot);
+                leftArm.shoulder.position.set(0.26, 0.3, 0);
+                leftArm.shoulder.parent = torso;
+
+                const leftArmMat = new BABYLON.StandardMaterial("leftArmMat", sceneRobot);
+                leftArmMat.diffuseColor = nodeColors[2];
+                leftArmMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+
+                const leftUpperArm = BABYLON.MeshBuilder.CreateCylinder("leftUpperArm", { height: 0.35, diameter: 0.06 }, sceneRobot);
+                leftUpperArm.position.y = -0.175;
+                leftUpperArm.parent = leftArm.shoulder;
+                leftUpperArm.material = leftArmMat;
+
+                leftArm.elbow = BABYLON.MeshBuilder.CreateSphere("leftElbow", { diameter: 0.08 }, sceneRobot);
+                leftArm.elbow.position.y = -0.175;
+                leftArm.elbow.parent = leftUpperArm;
+
+                const leftForearm = BABYLON.MeshBuilder.CreateCylinder("leftForearm", { height: 0.35, diameter: 0.045 }, sceneRobot);
+                leftForearm.position.y = -0.175;
+                leftForearm.parent = leftArm.elbow;
+                leftForearm.material = shinMat;
+
+                // Right Arm (Node 3)
+                rightArm.shoulder = BABYLON.MeshBuilder.CreateSphere("rightShoulder", { diameter: 0.1 }, sceneRobot);
+                rightArm.shoulder.position.set(-0.26, 0.3, 0);
+                rightArm.shoulder.parent = torso;
+
+                const rightArmMat = new BABYLON.StandardMaterial("rightArmMat", sceneRobot);
+                rightArmMat.diffuseColor = nodeColors[3];
+                rightArmMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+
+                const rightUpperArm = BABYLON.MeshBuilder.CreateCylinder("rightUpperArm", { height: 0.35, diameter: 0.06 }, sceneRobot);
+                rightUpperArm.position.y = -0.175;
+                rightUpperArm.parent = rightArm.shoulder;
+                rightUpperArm.material = rightArmMat;
+
+                rightArm.elbow = BABYLON.MeshBuilder.CreateSphere("rightElbow", { diameter: 0.08 }, sceneRobot);
+                rightArm.elbow.position.y = -0.175;
+                rightArm.elbow.parent = rightUpperArm;
+
+                const rightForearm = BABYLON.MeshBuilder.CreateCylinder("rightForearm", { height: 0.35, diameter: 0.045 }, sceneRobot);
+                rightForearm.position.y = -0.175;
+                rightForearm.parent = rightArm.elbow;
+                rightForearm.material = shinMat;
+
+                // 3. Rebuild 3D Mesh Graph
+                meshNodes.forEach(n => n.mesh.dispose());
+                meshNodes = [];
+                meshEdges.forEach(e => e.mesh.dispose());
+                meshEdges = [];
+
+                const nodePositions = [
+                    { id: 0, label: "Left Leg", x: -1.5, y: -1.2, z: 0, color: nodeColors[0] },
+                    { id: 3, label: "Right Arm", x: 1.5, y: 1.2, z: 0, color: nodeColors[3] },
+                    { id: 1, label: "Right Leg", x: 1.5, y: -1.2, z: 0, color: nodeColors[1] },
+                    { id: 2, label: "Left Arm", x: -1.5, y: 1.2, z: 0, color: nodeColors[2] },
+                    { id: 101, label: "Kinetic Vel", x: 0, y: 2.2, z: 0, color: new BABYLON.Color3(0.66, 0.33, 0.97) },
+                    { id: 201, label: "Phase Delta", x: 0, y: -2.2, z: 0, color: new BABYLON.Color3(0.93, 0.28, 0.6) }
+                ];
+
+                nodePositions.forEach(node => {
+                    const sphere = BABYLON.MeshBuilder.CreateSphere(`node_${node.id}`, { diameter: 0.35 }, sceneMesh);
+                    sphere.position.set(node.x, node.y, node.z);
+
+                    const mat = new BABYLON.StandardMaterial(`nodeMat_${node.id}`, sceneMesh);
+                    mat.diffuseColor = node.color;
+                    mat.emissiveColor = node.color.scale(0.25);
+                    sphere.material = mat;
+
+                    meshNodes.push({
+                        id: node.id,
+                        mesh: sphere,
+                        baseColor: node.color,
+                        material: mat
+                    });
+                });
+
+                // Build CPG Connections (Edges)
+                const sequence = [0, 3, 1, 2];
+                for (let i = 0; i < sequence.length; i++) {
+                    const fromId = sequence[i];
+                    const toId = sequence[(i + 1) % sequence.length];
+
+                    const pFrom = nodePositions.find(n => n.id === fromId);
+                    const pTo = nodePositions.find(n => n.id === toId);
+
+                    if (pFrom && pTo) {
+                        const points = [
+                            new BABYLON.Vector3(pFrom.x, pFrom.y, pFrom.z),
+                            new BABYLON.Vector3(pTo.x, pTo.y, pTo.z)
+                        ];
+                        const line = BABYLON.MeshBuilder.CreateLines(`edge_${fromId}_${toId}`, { points: points }, sceneMesh);
+                        line.color = new BABYLON.Color3(0.28, 0.33, 0.41);
+
+                        meshEdges.push({
+                            from: fromId,
+                            to: toId,
+                            mesh: line
+                        });
+                    }
+                }
+            }
+
+            // --- Log Telemetry Helper ---
+            function logMessage(msg, type = "") {
+                const log = document.getElementById("log");
+                const entry = document.createElement("div");
+                entry.className = "log-entry " + type;
+                entry.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+                log.appendChild(entry);
+                log.scrollTop = log.scrollHeight;
+            }
+
+            // --- Event Listeners ---
+            document.getElementById("btn-play").addEventListener("click", () => {
+                isPlaying = !isPlaying;
+                document.getElementById("btn-play").innerText = isPlaying
+                    ? "Pause Simulation"
+                    : "Resume Simulation";
+                logMessage(isPlaying ? "Simulation resumed." : "Simulation paused.");
+            });
+
+            document.getElementById("btn-perturb").addEventListener("click", () => {
+                logMessage("PERTURBATION INJECTED! Simulating external push/slip...", "log-mutation");
+
+                // Knock limbs out of phase to disrupt the bipedal gait
+                if (sim) {
+                    sim.phases[1] = sim.phases[0] + 0.4; // Desynchronize legs
+                    sim.phases[2] = sim.phases[0] - 0.4; // Desynchronize arms
+                }
+
+                // Trigger transactional structural re-patch of anomalous token 99 to target Left Leg (0)
+                const start = performance.now();
+                if (sim) {
+                    sim.step(0); // Force re-patching
+                }
+                const elapsed = performance.now() - start;
+
+                logMessage(
+                    `Transactional re-patch completed in ${elapsed.toFixed(4)} ms! (Target: < 16.6 ms)`,
+                    "log-success"
+                );
+            });
+
+            document.getElementById("btn-train").addEventListener("click", () => {
+                if (sim) {
+                    sim.trainingMode = !sim.trainingMode;
+                    document.getElementById("btn-train").innerText = sim.trainingMode
+                        ? "Toggle Training: ON"
+                        : "Toggle Training: OFF";
+                    document.getElementById("btn-train").className = sim.trainingMode ? "secondary" : "secondary danger";
+                    logMessage(`Training mode toggled to ${sim.trainingMode ? "ON" : "OFF"}.`);
+                }
+            });
+
+            document.getElementById("slide-decay").addEventListener("input", (e) => {
+                const val = parseFloat(e.target.value);
+                if (sim) sim.decayFactor = val;
+                document.getElementById("val-decay").innerText = val.toFixed(2);
+                logMessage(`Decay factor adjusted to ${val.toFixed(2)}.`);
+            });
+
+            document.getElementById("slide-speed").addEventListener("input", (e) => {
+                const val = parseFloat(e.target.value);
+                if (sim) sim.speedMultiplier = val;
+                document.getElementById("val-speed").innerText = val.toFixed(1) + "x";
+                logMessage(`Gait speed adjusted to ${val.toFixed(1)}x.`);
+            });
+
+            document.getElementById("slide-arms").addEventListener("input", (e) => {
+                const val = parseFloat(e.target.value);
+                if (sim) sim.armSwingMultiplier = val;
+                document.getElementById("val-arms").innerText = val.toFixed(1) + "x";
+                logMessage(`Arm swing intensity adjusted to ${val.toFixed(1)}x.`);
+            });
+
+            document.getElementById("select-gait").addEventListener("change", rebuildSimulation);
+
+            // Start everything when DOM is fully loaded
+            window.addEventListener("DOMContentLoaded", () => {
+                initBabylon();
+            });
+        </script>
+    </body>
+</html>
