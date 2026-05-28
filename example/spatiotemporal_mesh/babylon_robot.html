@@ -69,6 +69,7 @@
                 flex: 1;
                 position: relative;
                 background-color: #0b0f19;
+                overflow: hidden;
             }
             .viewport-title {
                 position: absolute;
@@ -134,7 +135,8 @@
                 display: flex;
                 justify-content: space-between;
             }
-            input[type="range"], select {
+            input[type="range"],
+            select {
                 width: 100%;
                 accent-color: #3b82f6;
                 background-color: #0f172a;
@@ -168,6 +170,9 @@
                 color: #10b981;
             }
             canvas {
+                position: absolute;
+                top: 0;
+                left: 0;
                 width: 100%;
                 height: 100%;
                 display: block;
@@ -192,7 +197,10 @@
                 <div class="panel">
                     <div class="panel-title">Robot Configuration</div>
                     <div class="slider-group">
-                        <label><span>Number of Legs</span><span id="val-legs">6</span></label>
+                        <label
+                            ><span>Number of Legs</span
+                            ><span id="val-legs">6</span></label
+                        >
                         <input
                             type="range"
                             id="slide-legs"
@@ -205,9 +213,13 @@
                     <div class="slider-group">
                         <label><span>Gait Preset</span></label>
                         <select id="select-gait">
-                            <option value="ripple">Ripple Gait (Interleaved)</option>
+                            <option value="ripple">
+                                Ripple Gait (Interleaved)
+                            </option>
                             <option value="wave">Wave Gait (Sequential)</option>
-                            <option value="trot">Trot / Alternating Gait</option>
+                            <option value="trot">
+                                Trot / Alternating Gait
+                            </option>
                         </select>
                     </div>
                 </div>
@@ -226,7 +238,10 @@
                 <div class="panel">
                     <div class="panel-title">Parameters</div>
                     <div class="slider-group">
-                        <label><span>Decay Factor</span><span id="val-decay">0.90</span></label>
+                        <label
+                            ><span>Decay Factor</span
+                            ><span id="val-decay">0.90</span></label
+                        >
                         <input
                             type="range"
                             id="slide-decay"
@@ -237,7 +252,10 @@
                         />
                     </div>
                     <div class="slider-group">
-                        <label><span>Gait Speed</span><span id="val-speed">1.0x</span></label>
+                        <label
+                            ><span>Gait Speed</span
+                            ><span id="val-speed">1.0x</span></label
+                        >
                         <input
                             type="range"
                             id="slide-speed"
@@ -249,11 +267,15 @@
                     </div>
                 </div>
 
-                <div class="panel" style="display: flex; flex-direction: column; flex: 1">
+                <div
+                    class="panel"
+                    style="display: flex; flex-direction: column; flex: 1"
+                >
                     <div class="panel-title">Live Telemetry Log</div>
                     <div class="log-container" id="log">
                         <div class="log-entry log-success">
-                            [SYSTEM] Babylon.js Neuromorphic sandbox initialized.
+                            [SYSTEM] Babylon.js Neuromorphic sandbox
+                            initialized.
                         </div>
                     </div>
                 </div>
@@ -262,11 +284,15 @@
             <div class="main-content">
                 <div class="viewports">
                     <div class="viewport" id="viewport-robot">
-                        <div class="viewport-title">3D Articulated Robot (Babylon.js)</div>
+                        <div class="viewport-title">
+                            3D Articulated Robot (Babylon.js)
+                        </div>
                         <canvas id="canvas-robot"></canvas>
                     </div>
                     <div class="viewport" id="viewport-mesh">
-                        <div class="viewport-title">3D Neuromorphic Mesh (Babylon.js)</div>
+                        <div class="viewport-title">
+                            3D Neuromorphic Mesh (Babylon.js)
+                        </div>
                         <canvas id="canvas-mesh"></canvas>
                     </div>
                 </div>
@@ -284,7 +310,9 @@
                     this.activeForward = 0;
                     this.activeBackward = 0;
                     this.forwardTargets = new Array(MAX_FORWARD_SLOTS).fill(0);
-                    this.backwardTargets = new Array(MAX_BACKWARD_SLOTS).fill(0);
+                    this.backwardTargets = new Array(MAX_BACKWARD_SLOTS).fill(
+                        0,
+                    );
                 }
 
                 updateBackwardTargets(history) {
@@ -373,7 +401,11 @@
                         }
 
                         // Topological plasticity
-                        if (trainingMode && correctTarget !== null && correctTarget !== undefined) {
+                        if (
+                            trainingMode &&
+                            correctTarget !== null &&
+                            correctTarget !== undefined
+                        ) {
                             const evicted = line.updateOrEvictForwardTarget(
                                 correctTarget,
                                 this.globalAccumulators,
@@ -454,7 +486,11 @@
                     }
                     lefts.reverse();
                     rights.reverse();
-                    for (let i = 0; i < Math.max(lefts.length, rights.length); i++) {
+                    for (
+                        let i = 0;
+                        i < Math.max(lefts.length, rights.length);
+                        i++
+                    ) {
                         if (i < lefts.length) sequence.push(lefts[i]);
                         if (i < rights.length) sequence.push(rights[i]);
                     }
@@ -469,7 +505,9 @@
                     for (let i = 0; i < half; i++) {
                         seq.push(i * 2);
                         if (i * 2 + 1 < numLegs) {
-                            const rightIdx = (i * 2 + 1 + (numLegs % 4 === 0 ? 2 : 0)) % numLegs;
+                            const rightIdx =
+                                (i * 2 + 1 + (numLegs % 4 === 0 ? 2 : 0)) %
+                                numLegs;
                             seq.push(rightIdx);
                         }
                     }
@@ -507,13 +545,13 @@
                     for (let i = 0; i < numLegs; i++) {
                         const current = this.gaitSequence[i];
                         const next = this.gaitSequence[(i + 1) % numLegs];
-                        const prev = this.gaitSequence[(i + numLegs - 1) % numLegs];
+                        const prev =
+                            this.gaitSequence[(i + numLegs - 1) % numLegs];
 
                         const line = this.mesh.lines[current];
                         line.forwardTargets[0] = next;
                         line.activeForward = 1;
 
-                        line.backwardTargets[0] = prev;
                         line.backwardTargets[0] = prev;
                         line.activeBackward = 1;
                     }
@@ -531,15 +569,23 @@
                     }
                     const spatialToken = spatialLeg;
 
-                    const avgVel = this.velocities.reduce((a, b) => a + b, 0) / this.numLegs;
+                    const avgVel =
+                        this.velocities.reduce((a, b) => a + b, 0) /
+                        this.numLegs;
                     const velBucket = avgVel > 0.15 ? 2 : avgVel > 0.05 ? 1 : 0;
                     const velocityToken = 100 + velBucket;
 
-                    const diff = Math.abs(this.phases[0] - this.phases[1 % this.numLegs]);
+                    const diff = Math.abs(
+                        this.phases[0] - this.phases[1 % this.numLegs],
+                    );
                     const diffBucket = diff > 2.0 ? 2 : diff > 1.0 ? 1 : 0;
                     const phaseDeltaToken = 200 + diffBucket;
 
-                    const tokens = [spatialToken, velocityToken, phaseDeltaToken];
+                    const tokens = [
+                        spatialToken,
+                        velocityToken,
+                        phaseDeltaToken,
+                    ];
 
                     // 2. Process frame
                     this.mesh.processFrame(
@@ -552,7 +598,8 @@
                     // 3. Update phases based on CPG energy
                     for (let i = 0; i < this.numLegs; i++) {
                         const energy = this.mesh.globalAccumulators[i] || 0;
-                        this.velocities[i] = (0.05 + 0.01 * energy) * this.speedMultiplier;
+                        this.velocities[i] =
+                            (0.05 + 0.01 * energy) * this.speedMultiplier;
                         this.phases[i] += this.velocities[i];
                         if (this.phases[i] > 2 * Math.PI) {
                             this.phases[i] -= 2 * Math.PI;
@@ -574,7 +621,7 @@
             const legColors = [
                 new BABYLON.Color3(0.22, 0.74, 0.97), // Cyan #38bdf8
                 new BABYLON.Color3(0.51, 0.55, 0.97), // Indigo #818cf8
-                new BABYLON.Color3(0.2, 0.83, 0.6),  // Emerald #34d399
+                new BABYLON.Color3(0.2, 0.83, 0.6), // Emerald #34d399
                 new BABYLON.Color3(0.98, 0.75, 0.14), // Amber #fbbf24
                 new BABYLON.Color3(0.93, 0.25, 0.37), // Rose #f43f5e
                 new BABYLON.Color3(0.66, 0.33, 0.97), // Purple #a855f7
@@ -585,7 +632,12 @@
                 const canvasRobot = document.getElementById("canvas-robot");
                 engineRobot = new BABYLON.Engine(canvasRobot, true);
                 sceneRobot = new BABYLON.Scene(engineRobot);
-                sceneRobot.clearColor = new BABYLON.Color4(0.04, 0.06, 0.1, 1.0); // #0b0f19
+                sceneRobot.clearColor = new BABYLON.Color4(
+                    0.04,
+                    0.06,
+                    0.1,
+                    1.0,
+                ); // #0b0f19
 
                 cameraRobot = new BABYLON.ArcRotateCamera(
                     "cameraRobot",
@@ -593,7 +645,7 @@
                     Math.PI / 3,
                     6,
                     new BABYLON.Vector3(0, 0.5, 0),
-                    sceneRobot
+                    sceneRobot,
                 );
                 cameraRobot.attachControl(canvasRobot, true);
                 cameraRobot.lowerRadiusLimit = 3;
@@ -602,22 +654,33 @@
                 const lightRobotAmbient = new BABYLON.HemisphericLight(
                     "lightRobotAmbient",
                     new BABYLON.Vector3(0, 1, 0),
-                    sceneRobot
+                    sceneRobot,
                 );
                 lightRobotAmbient.intensity = 0.7;
-                lightRobotAmbient.groundColor = new BABYLON.Color3(0.1, 0.15, 0.25);
+                lightRobotAmbient.groundColor = new BABYLON.Color3(
+                    0.1,
+                    0.15,
+                    0.25,
+                );
 
                 const lightRobotDir = new BABYLON.DirectionalLight(
                     "lightRobotDir",
                     new BABYLON.Vector3(-1, -2, -1),
-                    sceneRobot
+                    sceneRobot,
                 );
                 lightRobotDir.position = new BABYLON.Vector3(5, 10, 5);
                 lightRobotDir.intensity = 1.2;
 
                 // Ground Grid
-                const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 30, height: 30 }, sceneRobot);
-                const groundMat = new BABYLON.StandardMaterial("groundMat", sceneRobot);
+                const ground = BABYLON.MeshBuilder.CreateGround(
+                    "ground",
+                    { width: 30, height: 30 },
+                    sceneRobot,
+                );
+                const groundMat = new BABYLON.StandardMaterial(
+                    "groundMat",
+                    sceneRobot,
+                );
                 groundMat.diffuseColor = new BABYLON.Color3(0.08, 0.11, 0.18);
                 groundMat.specularColor = new BABYLON.Color3(0, 0, 0);
                 ground.material = groundMat;
@@ -625,10 +688,20 @@
                 // Simple grid lines on ground
                 const gridLines = [];
                 for (let i = -15; i <= 15; i += 1.5) {
-                    gridLines.push([new BABYLON.Vector3(i, 0.01, -15), new BABYLON.Vector3(i, 0.01, 15)]);
-                    gridLines.push([new BABYLON.Vector3(-15, 0.01, i), new BABYLON.Vector3(15, 0.01, i)]);
+                    gridLines.push([
+                        new BABYLON.Vector3(i, 0.01, -15),
+                        new BABYLON.Vector3(i, 0.01, 15),
+                    ]);
+                    gridLines.push([
+                        new BABYLON.Vector3(-15, 0.01, i),
+                        new BABYLON.Vector3(15, 0.01, i),
+                    ]);
                 }
-                const gridSystem = BABYLON.MeshBuilder.CreateLineSystem("gridSystem", { lines: gridLines }, sceneRobot);
+                const gridSystem = BABYLON.MeshBuilder.CreateLineSystem(
+                    "gridSystem",
+                    { lines: gridLines },
+                    sceneRobot,
+                );
                 gridSystem.color = new BABYLON.Color3(0.18, 0.25, 0.35);
 
                 // 2. Mesh Viewport
@@ -643,7 +716,7 @@
                     Math.PI / 2,
                     7,
                     new BABYLON.Vector3(0, 0, 0),
-                    sceneMesh
+                    sceneMesh,
                 );
                 cameraMesh.attachControl(canvasMesh, true);
                 cameraMesh.lowerRadiusLimit = 4;
@@ -652,12 +725,104 @@
                 const lightMesh = new BABYLON.HemisphericLight(
                     "lightMesh",
                     new BABYLON.Vector3(0, 1, 0),
-                    sceneMesh
+                    sceneMesh,
                 );
                 lightMesh.intensity = 1.5;
 
                 // Build initial simulation
                 rebuildSimulation();
+
+                // Register Main Animation Loop
+                sceneRobot.registerBeforeRender(() => {
+                    if (isPlaying && sim) {
+                        stepCount++;
+                        sim.step();
+
+                        // 1. Update Robot 3D Model
+                        for (let i = 0; i < sim.numLegs; i++) {
+                            const phase = sim.phases[i];
+                            const leg = legs[i];
+
+                            if (leg) {
+                                // Hip rotation (swinging forward and backward)
+                                // Positive rotation around X swings leg forward, negative swings backward
+                                leg.hip.rotation.x = Math.sin(phase) * 0.4;
+
+                                // Knee rotation (bending during swing phase)
+                                const swingPhase = Math.sin(phase);
+                                if (swingPhase > 0) {
+                                    // Bend knee backward
+                                    leg.knee.rotation.x = -swingPhase * 0.6;
+                                } else {
+                                    // Straighten knee on ground contact
+                                    leg.knee.rotation.x = 0;
+                                }
+                            }
+                        }
+
+                        // Body bounce & tilt
+                        robotBody.position.y =
+                            0.65 + Math.sin(sim.phases[0] * 2) * 0.04;
+                        robotBody.rotation.z = Math.sin(sim.phases[0]) * 0.015;
+
+                        // 2. Update Mesh 3D Visualization
+                        const activeNodes = sim.mesh.getActiveNodes();
+                        const intensities = sim.mesh.getLoopIntensities();
+
+                        // Flash active nodes
+                        meshNodes.forEach((node) => {
+                            if (activeNodes.includes(node.id)) {
+                                const intensity = intensities[node.id] || 1;
+                                const scale = 1 + intensity * 0.08;
+                                node.mesh.scaling.set(scale, scale, scale);
+                                node.material.emissiveColor =
+                                    new BABYLON.Color3(0.8, 0.9, 1.0); // Bright white glow
+                            } else {
+                                node.mesh.scaling.set(1, 1, 1);
+                                node.material.emissiveColor =
+                                    node.baseColor.scale(0.25);
+                            }
+                        });
+
+                        // Glow loopback lines based on intensities
+                        meshEdges.forEach((edge) => {
+                            const fromIntensity = intensities[edge.from] || 0;
+                            const toIntensity = intensities[edge.to] || 0;
+                            const avgIntensity =
+                                (fromIntensity + toIntensity) / 2;
+
+                            if (avgIntensity > 0) {
+                                edge.mesh.color = new BABYLON.Color3(
+                                    0.22,
+                                    0.74,
+                                    0.97,
+                                ); // Cyan glow
+                            } else {
+                                edge.mesh.color = new BABYLON.Color3(
+                                    0.28,
+                                    0.33,
+                                    0.41,
+                                ); // Default gray
+                            }
+                        });
+
+                        // Log telemetry occasionally
+                        if (stepCount % 60 === 0) {
+                            logMessage(
+                                `Gait step ${stepCount}. Active Nodes: [${activeNodes.join(", ")}]`,
+                            );
+                        }
+
+                        // Check for structural mutations
+                        const mutations = sim.mesh.getStructuralMutations();
+                        mutations.forEach((mut) => {
+                            logMessage(
+                                `STRUCTURAL MUTATION: Token ${mut.tokenId} evicted ${mut.evictedTarget} ➔ Patched to ${mut.newTarget}`,
+                                "log-mutation",
+                            );
+                        });
+                    }
+                });
 
                 // Render loops
                 engineRobot.runRenderLoop(() => {
@@ -674,7 +839,9 @@
             }
 
             function rebuildSimulation() {
-                const numLegs = parseInt(document.getElementById("slide-legs").value);
+                const numLegs = parseInt(
+                    document.getElementById("slide-legs").value,
+                );
                 const preset = document.getElementById("select-gait").value;
 
                 // Update UI label
@@ -682,7 +849,7 @@
 
                 // 1. Re-initialize simulation
                 const trainingMode = sim ? sim.trainingMode : true;
-                const decayFactor = sim ? sim.decayFactor : 0.90;
+                const decayFactor = sim ? sim.decayFactor : 0.9;
                 const speedMultiplier = sim ? sim.speedMultiplier : 1.0;
 
                 sim = new LeggedSimulation(numLegs, preset);
@@ -690,7 +857,10 @@
                 sim.decayFactor = decayFactor;
                 sim.speedMultiplier = speedMultiplier;
 
-                logMessage(`Initialized ${numLegs}-legged robot with ${preset.toUpperCase()} gait.`, "log-success");
+                logMessage(
+                    `Initialized ${numLegs}-legged robot with ${preset.toUpperCase()} gait.`,
+                    "log-success",
+                );
 
                 // 2. Rebuild Robot 3D Model
                 if (robotBody) {
@@ -703,23 +873,37 @@
                 const bodyLength = Math.max(1.2, (pairs - 1) * spacing + 0.6);
 
                 // Chassis
-                robotBody = BABYLON.MeshBuilder.CreateBox("chassis", {
-                    width: 0.6,
-                    height: 0.35,
-                    depth: bodyLength
-                }, sceneRobot);
+                robotBody = BABYLON.MeshBuilder.CreateBox(
+                    "chassis",
+                    {
+                        width: 0.6,
+                        height: 0.35,
+                        depth: bodyLength,
+                    },
+                    sceneRobot,
+                );
                 robotBody.position.y = 0.65;
 
-                const bodyMat = new BABYLON.StandardMaterial("bodyMat", sceneRobot);
+                const bodyMat = new BABYLON.StandardMaterial(
+                    "bodyMat",
+                    sceneRobot,
+                );
                 bodyMat.diffuseColor = new BABYLON.Color3(0.12, 0.16, 0.23); // #1e293b
                 bodyMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
                 robotBody.material = bodyMat;
 
                 // Add simple head to indicate forward direction (+Z)
-                const head = BABYLON.MeshBuilder.CreateBox("head", { width: 0.4, height: 0.25, depth: 0.3 }, sceneRobot);
+                const head = BABYLON.MeshBuilder.CreateBox(
+                    "head",
+                    { width: 0.4, height: 0.25, depth: 0.3 },
+                    sceneRobot,
+                );
                 head.position.set(0, 0.1, bodyLength / 2 + 0.15);
                 head.parent = robotBody;
-                const headMat = new BABYLON.StandardMaterial("headMat", sceneRobot);
+                const headMat = new BABYLON.StandardMaterial(
+                    "headMat",
+                    sceneRobot,
+                );
                 headMat.diffuseColor = new BABYLON.Color3(0.22, 0.29, 0.42);
                 head.material = headMat;
 
@@ -727,57 +911,86 @@
                 for (let i = 0; i < numLegs; i++) {
                     const side = i % 2 === 0 ? "Left" : "Right";
                     const j = Math.floor(i / 2);
-                    const zOffset = (pairs > 1) ? ((bodyLength - 0.6) / 2 - j * spacing) : 0;
+                    const zOffset =
+                        pairs > 1 ? (bodyLength - 0.6) / 2 - j * spacing : 0;
                     const xOffset = side === "Left" ? 0.35 : -0.35;
 
                     // Hip Joint
-                    const hip = BABYLON.MeshBuilder.CreateSphere(`hip_${i}`, { diameter: 0.14 }, sceneRobot);
+                    const hip = BABYLON.MeshBuilder.CreateSphere(
+                        `hip_${i}`,
+                        { diameter: 0.14 },
+                        sceneRobot,
+                    );
                     hip.position.set(xOffset, -0.05, zOffset);
                     hip.parent = robotBody;
 
-                    const hipMat = new BABYLON.StandardMaterial(`hipMat_${i}`, sceneRobot);
+                    const hipMat = new BABYLON.StandardMaterial(
+                        `hipMat_${i}`,
+                        sceneRobot,
+                    );
                     hipMat.diffuseColor = new BABYLON.Color3(0.28, 0.33, 0.41);
                     hip.material = hipMat;
 
                     // Thigh (Upper Leg)
-                    const thigh = BABYLON.MeshBuilder.CreateCylinder(`thigh_${i}`, { height: 0.45, diameter: 0.08 }, sceneRobot);
+                    const thigh = BABYLON.MeshBuilder.CreateCylinder(
+                        `thigh_${i}`,
+                        { height: 0.45, diameter: 0.08 },
+                        sceneRobot,
+                    );
                     thigh.position.y = -0.225;
                     thigh.parent = hip;
 
-                    const thighMat = new BABYLON.StandardMaterial(`thighMat_${i}`, sceneRobot);
+                    const thighMat = new BABYLON.StandardMaterial(
+                        `thighMat_${i}`,
+                        sceneRobot,
+                    );
                     thighMat.diffuseColor = legColors[i % legColors.length];
                     thighMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
                     thigh.material = thighMat;
 
                     // Knee Joint
-                    const knee = BABYLON.MeshBuilder.CreateSphere(`knee_${i}`, { diameter: 0.1 }, sceneRobot);
+                    const knee = BABYLON.MeshBuilder.CreateSphere(
+                        `knee_${i}`,
+                        { diameter: 0.1 },
+                        sceneRobot,
+                    );
                     knee.position.y = -0.225;
                     knee.parent = thigh;
 
-                    const kneeMat = new BABYLON.StandardMaterial(`kneeMat_${i}`, sceneRobot);
+                    const kneeMat = new BABYLON.StandardMaterial(
+                        `kneeMat_${i}`,
+                        sceneRobot,
+                    );
                     kneeMat.diffuseColor = new BABYLON.Color3(0.18, 0.25, 0.35);
                     knee.material = kneeMat;
 
                     // Shin (Lower Leg)
-                    const shin = BABYLON.MeshBuilder.CreateCylinder(`shin_${i}`, { height: 0.45, diameter: 0.05 }, sceneRobot);
+                    const shin = BABYLON.MeshBuilder.CreateCylinder(
+                        `shin_${i}`,
+                        { height: 0.45, diameter: 0.05 },
+                        sceneRobot,
+                    );
                     shin.position.y = -0.225;
                     shin.parent = knee;
 
-                    const shinMat = new BABYLON.StandardMaterial(`shinMat_${i}`, sceneRobot);
+                    const shinMat = new BABYLON.StandardMaterial(
+                        `shinMat_${i}`,
+                        sceneRobot,
+                    );
                     shinMat.diffuseColor = new BABYLON.Color3(0.58, 0.64, 0.72); // #94a3b8
                     shin.material = shinMat;
 
                     legs.push({
                         hip: hip,
                         knee: knee,
-                        side: side
+                        side: side,
                     });
                 }
 
                 // 3. Rebuild 3D Mesh Graph
-                meshNodes.forEach(n => n.mesh.dispose());
+                meshNodes.forEach((n) => n.mesh.dispose());
                 meshNodes = [];
-                meshEdges.forEach(e => e.mesh.dispose());
+                meshEdges.forEach((e) => e.mesh.dispose());
                 meshEdges = [];
 
                 const nodePositions = [];
@@ -786,14 +999,14 @@
                     const side = i % 2 === 0 ? "Left" : "Right";
                     const j = Math.floor(i / 2);
                     const x = side === "Left" ? -1.6 : 1.6;
-                    const y = (pairs > 1) ? ((pairs - 1) / 2 * 1.1 - j * 1.1) : 0;
+                    const y = pairs > 1 ? ((pairs - 1) / 2) * 1.1 - j * 1.1 : 0;
                     nodePositions.push({
                         id: i,
                         label: `Leg ${i}`,
                         x: x,
                         y: y,
                         z: 0,
-                        color: legColors[i % legColors.length]
+                        color: legColors[i % legColors.length],
                     });
                 }
                 // Add feature nodes
@@ -803,7 +1016,7 @@
                     x: 0,
                     y: 2.2,
                     z: 0,
-                    color: new BABYLON.Color3(0.66, 0.33, 0.97) // Purple
+                    color: new BABYLON.Color3(0.66, 0.33, 0.97), // Purple
                 });
                 nodePositions.push({
                     id: 201,
@@ -811,14 +1024,21 @@
                     x: 0,
                     y: -2.2,
                     z: 0,
-                    color: new BABYLON.Color3(0.93, 0.28, 0.6) // Pink
+                    color: new BABYLON.Color3(0.93, 0.28, 0.6), // Pink
                 });
 
-                nodePositions.forEach(node => {
-                    const sphere = BABYLON.MeshBuilder.CreateSphere(`node_${node.id}`, { diameter: 0.35 }, sceneMesh);
+                nodePositions.forEach((node) => {
+                    const sphere = BABYLON.MeshBuilder.CreateSphere(
+                        `node_${node.id}`,
+                        { diameter: 0.35 },
+                        sceneMesh,
+                    );
                     sphere.position.set(node.x, node.y, node.z);
 
-                    const mat = new BABYLON.StandardMaterial(`nodeMat_${node.id}`, sceneMesh);
+                    const mat = new BABYLON.StandardMaterial(
+                        `nodeMat_${node.id}`,
+                        sceneMesh,
+                    );
                     mat.diffuseColor = node.color;
                     mat.emissiveColor = node.color.scale(0.25);
                     sphere.material = mat;
@@ -827,7 +1047,7 @@
                         id: node.id,
                         mesh: sphere,
                         baseColor: node.color,
-                        material: mat
+                        material: mat,
                     });
                 });
 
@@ -837,21 +1057,25 @@
                     const fromId = sequence[i];
                     const toId = sequence[(i + 1) % sequence.length];
 
-                    const pFrom = nodePositions.find(n => n.id === fromId);
-                    const pTo = nodePositions.find(n => n.id === toId);
+                    const pFrom = nodePositions.find((n) => n.id === fromId);
+                    const pTo = nodePositions.find((n) => n.id === toId);
 
                     if (pFrom && pTo) {
                         const points = [
                             new BABYLON.Vector3(pFrom.x, pFrom.y, pFrom.z),
-                            new BABYLON.Vector3(pTo.x, pTo.y, pTo.z)
+                            new BABYLON.Vector3(pTo.x, pTo.y, pTo.z),
                         ];
-                        const line = BABYLON.MeshBuilder.CreateLines(`edge_${fromId}_${toId}`, { points: points }, sceneMesh);
+                        const line = BABYLON.MeshBuilder.CreateLines(
+                            `edge_${fromId}_${toId}`,
+                            { points: points },
+                            sceneMesh,
+                        );
                         line.color = new BABYLON.Color3(0.28, 0.33, 0.41); // #475569
 
                         meshEdges.push({
                             from: fromId,
                             to: toId,
-                            mesh: line
+                            mesh: line,
                         });
                     }
                 }
@@ -869,147 +1093,98 @@
 
             // --- Main Animation Loop ---
             let stepCount = 0;
-            sceneRobot.registerBeforeRender(() => {
-                if (isPlaying && sim) {
-                    stepCount++;
-                    sim.step();
-
-                    // 1. Update Robot 3D Model
-                    for (let i = 0; i < sim.numLegs; i++) {
-                        const phase = sim.phases[i];
-                        const leg = legs[i];
-
-                        if (leg) {
-                            // Hip rotation (swinging forward and backward)
-                            // Positive rotation around X swings leg forward, negative swings backward
-                            leg.hip.rotation.x = Math.sin(phase) * 0.4;
-
-                            // Knee rotation (bending during swing phase)
-                            const swingPhase = Math.sin(phase);
-                            if (swingPhase > 0) {
-                                // Bend knee backward
-                                leg.knee.rotation.x = -swingPhase * 0.6;
-                            } else {
-                                // Straighten knee on ground contact
-                                leg.knee.rotation.x = 0;
-                            }
-                        }
-                    }
-
-                    // Body bounce & tilt
-                    robotBody.position.y = 0.65 + Math.sin(sim.phases[0] * 2) * 0.04;
-                    robotBody.rotation.z = Math.sin(sim.phases[0]) * 0.015;
-
-                    // 2. Update Mesh 3D Visualization
-                    const activeNodes = sim.mesh.getActiveNodes();
-                    const intensities = sim.mesh.getLoopIntensities();
-
-                    // Flash active nodes
-                    meshNodes.forEach((node) => {
-                        if (activeNodes.includes(node.id)) {
-                            const intensity = intensities[node.id] || 1;
-                            const scale = 1 + intensity * 0.08;
-                            node.mesh.scaling.set(scale, scale, scale);
-                            node.material.emissiveColor = new BABYLON.Color3(0.8, 0.9, 1.0); // Bright white glow
-                        } else {
-                            node.mesh.scaling.set(1, 1, 1);
-                            node.material.emissiveColor = node.baseColor.scale(0.25);
-                        }
-                    });
-
-                    // Glow loopback lines based on intensities
-                    meshEdges.forEach((edge) => {
-                        const fromIntensity = intensities[edge.from] || 0;
-                        const toIntensity = intensities[edge.to] || 0;
-                        const avgIntensity = (fromIntensity + toIntensity) / 2;
-
-                        if (avgIntensity > 0) {
-                            edge.mesh.color = new BABYLON.Color3(0.22, 0.74, 0.97); // Cyan glow
-                        } else {
-                            edge.mesh.color = new BABYLON.Color3(0.28, 0.33, 0.41); // Default gray
-                        }
-                    });
-
-                    // Log telemetry occasionally
-                    if (stepCount % 60 === 0) {
-                        logMessage(
-                            `Gait step ${stepCount}. Active Nodes: [${activeNodes.join(", ")}]`
-                        );
-                    }
-
-                    // Check for structural mutations
-                    const mutations = sim.mesh.getStructuralMutations();
-                    mutations.forEach((mut) => {
-                        logMessage(
-                            `STRUCTURAL MUTATION: Token ${mut.tokenId} evicted ${mut.evictedTarget} ➔ Patched to ${mut.newTarget}`,
-                            "log-mutation"
-                        );
-                    });
-                }
-            });
 
             // --- Event Listeners ---
-            document.getElementById("btn-play").addEventListener("click", () => {
-                isPlaying = !isPlaying;
-                document.getElementById("btn-play").innerText = isPlaying
-                    ? "Pause Simulation"
-                    : "Resume Simulation";
-                logMessage(isPlaying ? "Simulation resumed." : "Simulation paused.");
-            });
+            document
+                .getElementById("btn-play")
+                .addEventListener("click", () => {
+                    isPlaying = !isPlaying;
+                    document.getElementById("btn-play").innerText = isPlaying
+                        ? "Pause Simulation"
+                        : "Resume Simulation";
+                    logMessage(
+                        isPlaying
+                            ? "Simulation resumed."
+                            : "Simulation paused.",
+                    );
+                });
 
-            document.getElementById("btn-perturb").addEventListener("click", () => {
-                logMessage("PERTURBATION INJECTED! Simulating external push/slip...", "log-mutation");
+            document
+                .getElementById("btn-perturb")
+                .addEventListener("click", () => {
+                    logMessage(
+                        "PERTURBATION INJECTED! Simulating external push/slip...",
+                        "log-mutation",
+                    );
 
-                // Knock legs out of phase to disrupt the gait
-                if (sim && sim.numLegs > 1) {
-                    for (let i = 1; i < sim.numLegs; i += 2) {
-                        sim.phases[i] = sim.phases[0] + 0.3; // Desynchronize odd legs
+                    // Knock legs out of phase to disrupt the gait
+                    if (sim && sim.numLegs > 1) {
+                        for (let i = 1; i < sim.numLegs; i += 2) {
+                            sim.phases[i] = sim.phases[0] + 0.3; // Desynchronize odd legs
+                        }
                     }
-                }
 
-                // Trigger transactional structural re-patch of anomalous token 99 to target Leg 0
-                const start = performance.now();
-                if (sim) {
-                    sim.step(0); // Force re-patching
-                }
-                const elapsed = performance.now() - start;
+                    // Trigger transactional structural re-patch of anomalous token 99 to target Leg 0
+                    const start = performance.now();
+                    if (sim) {
+                        sim.step(0); // Force re-patching
+                    }
+                    const elapsed = performance.now() - start;
 
-                logMessage(
-                    `Transactional re-patch completed in ${elapsed.toFixed(4)} ms! (Target: < 16.6 ms)`,
-                    "log-success"
-                );
+                    logMessage(
+                        `Transactional re-patch completed in ${elapsed.toFixed(4)} ms! (Target: < 16.6 ms)`,
+                        "log-success",
+                    );
+                });
+
+            document
+                .getElementById("btn-train")
+                .addEventListener("click", () => {
+                    if (sim) {
+                        sim.trainingMode = !sim.trainingMode;
+                        document.getElementById("btn-train").innerText =
+                            sim.trainingMode
+                                ? "Toggle Training: ON"
+                                : "Toggle Training: OFF";
+                        document.getElementById("btn-train").className =
+                            sim.trainingMode ? "secondary" : "secondary danger";
+                        logMessage(
+                            `Training mode toggled to ${sim.trainingMode ? "ON" : "OFF"}.`,
+                        );
+                    }
+                });
+
+            document
+                .getElementById("slide-decay")
+                .addEventListener("input", (e) => {
+                    const val = parseFloat(e.target.value);
+                    if (sim) sim.decayFactor = val;
+                    document.getElementById("val-decay").innerText =
+                        val.toFixed(2);
+                    logMessage(`Decay factor adjusted to ${val.toFixed(2)}.`);
+                });
+
+            document
+                .getElementById("slide-speed")
+                .addEventListener("input", (e) => {
+                    const val = parseFloat(e.target.value);
+                    if (sim) sim.speedMultiplier = val;
+                    document.getElementById("val-speed").innerText =
+                        val.toFixed(1) + "x";
+                    logMessage(`Gait speed adjusted to ${val.toFixed(1)}x.`);
+                });
+
+            document
+                .getElementById("slide-legs")
+                .addEventListener("input", rebuildSimulation);
+            document
+                .getElementById("select-gait")
+                .addEventListener("change", rebuildSimulation);
+
+            // Start everything when DOM is fully loaded
+            window.addEventListener("DOMContentLoaded", () => {
+                initBabylon();
             });
-
-            document.getElementById("btn-train").addEventListener("click", () => {
-                if (sim) {
-                    sim.trainingMode = !sim.trainingMode;
-                    document.getElementById("btn-train").innerText = sim.trainingMode
-                        ? "Toggle Training: ON"
-                        : "Toggle Training: OFF";
-                    document.getElementById("btn-train").className = sim.trainingMode ? "secondary" : "secondary danger";
-                    logMessage(`Training mode toggled to ${sim.trainingMode ? "ON" : "OFF"}.`);
-                }
-            });
-
-            document.getElementById("slide-decay").addEventListener("input", (e) => {
-                const val = parseFloat(e.target.value);
-                if (sim) sim.decayFactor = val;
-                document.getElementById("val-decay").innerText = val.toFixed(2);
-                logMessage(`Decay factor adjusted to ${val.toFixed(2)}.`);
-            });
-
-            document.getElementById("slide-speed").addEventListener("input", (e) => {
-                const val = parseFloat(e.target.value);
-                if (sim) sim.speedMultiplier = val;
-                document.getElementById("val-speed").innerText = val.toFixed(1) + "x";
-                logMessage(`Gait speed adjusted to ${val.toFixed(1)}x.`);
-            });
-
-            document.getElementById("slide-legs").addEventListener("input", rebuildSimulation);
-            document.getElementById("select-gait").addEventListener("change", rebuildSimulation);
-
-            // Start everything
-            initBabylon();
         </script>
     </body>
 </html>
