@@ -10,6 +10,7 @@ csv = "1.1"
 pyo3 = { version = "0.21", features = ["experimental-declarative-modules"] }
 
 [features]
+default = ["extension-module"]
 extension-module = ["pyo3/extension-module"]
 
 [lib]
