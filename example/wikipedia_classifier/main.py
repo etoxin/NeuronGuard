@@ -18,6 +18,7 @@ This example showcases:
    Allows typing any sentence to route it to the 5 specialized domain experts in microseconds.
 """
 
+import argparse
 import os
 import re
 import time
@@ -172,6 +173,40 @@ class WikipediaDomain:
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="NeuronGuard Wikipedia Classifier & Router"
+    )
+    parser.add_argument(
+        "--train-samples",
+        type=int,
+        default=100000,
+        help="Number of streamed articles to train on (default: 100,000)",
+    )
+    parser.add_argument(
+        "--test-samples",
+        type=int,
+        default=10000,
+        help="Number of streamed articles to evaluate on (default: 10,000)",
+    )
+    parser.add_argument(
+        "--vocab-samples",
+        type=int,
+        default=20000,
+        help="Number of streamed articles to use for building vocabulary (default: 20,000)",
+    )
+    parser.add_argument(
+        "--vocab-size",
+        type=int,
+        default=5000,
+        help="Size of the vocabulary (default: 5,000)",
+    )
+    parser.add_argument(
+        "--force-retrain",
+        action="store_true",
+        help="Force retraining even if pre-trained weights exist",
+    )
+    args = parser.parse_args()
+
     print("====================================================================")
     print("📚 Wikimedia Structured Wikipedia 10.4M Classifier & Router 📚")
     print("====================================================================\n")
@@ -224,7 +259,7 @@ def main():
     weights_file_path = os.path.join(script_dir, "wikipedia_weights.bin")
     vocab_file_path = os.path.join(script_dir, "wikipedia_vocab.txt")
 
-    vocab_size = 5000
+    vocab_size = args.vocab_size
     num_experts = 5
     field_size = vocab_size + num_experts
 
@@ -235,7 +270,11 @@ def main():
     field = ng.NeuronGuardField(sensory_count=vocab_size, motor_count=num_experts)
 
     # Check if pre-trained model exists
-    if os.path.exists(weights_file_path) and os.path.exists(vocab_file_path):
+    if (
+        os.path.exists(weights_file_path)
+        and os.path.exists(vocab_file_path)
+        and not args.force_retrain
+    ):
         print("Loading pre-trained model weights and vocabulary...")
         with open(vocab_file_path, "r", encoding="utf-8") as f:
             for idx, line in enumerate(f):
@@ -267,12 +306,14 @@ def main():
             print("Please ensure you have an active internet connection.")
             return
 
-        # 2. Build Vocabulary from first 20,000 articles
-        print("\n--- Step 2: Building Vocabulary from first 20,000 articles ---")
+        # 2. Build Vocabulary from first N articles
+        print(
+            f"\n--- Step 2: Building Vocabulary from first {args.vocab_samples:,} articles ---"
+        )
         word_counts = {}
         iterator = iter(ds)
 
-        for i in range(20000):
+        for i in range(args.vocab_samples):
             try:
                 row = next(iterator)
             except StopIteration:
@@ -302,7 +343,9 @@ def main():
         print(f"Vocabulary of top {len(vocab_list)} words built successfully!")
 
         # 3. Train the cortex on the fly
-        print("\n--- Step 3: Training on the fly (Trainer Mode) ---")
+        print(
+            f"\n--- Step 3: Training on the fly on {args.train_samples:,} articles (Trainer Mode) ---"
+        )
         start_time = time.time()
 
         # Reset iterator to start of dataset
@@ -314,7 +357,7 @@ def main():
         )
         iterator = iter(ds)
 
-        train_samples = 30000
+        train_samples = args.train_samples
         trained_count = 0
 
         for i in range(train_samples):
@@ -336,12 +379,12 @@ def main():
                 )
                 trained_count += 1
 
-            if (i + 1) % 5000 == 0:
-                print(f"  Processed {i + 1}/{train_samples} streamed samples...")
+            if (i + 1) % 10000 == 0:
+                print(f"  Processed {i + 1:,}/{train_samples:,} streamed samples...")
 
         duration = time.time() - start_time
         print(
-            f"Training on {trained_count} valid samples completed in {duration:.2f}s!"
+            f"Training on {trained_count:,} valid samples completed in {duration:.2f}s!"
         )
 
         # Save weights to disk
@@ -349,54 +392,120 @@ def main():
         field.save_weights(weights_file_path)
         print("Model saved successfully!\n")
 
-    # 4. Interactive CLI Loop
-    print("--------------------------------------------------------------------")
-    print("Type any sentence or description below to classify it.")
-    print(
-        "The engine will route the context to the 5 specialized domain experts in real-time."
+    # 4. Batch Evaluation on Test Split
+    print("--- Step 4: Evaluating Accuracy on Test Split ---")
+    print(f"Streaming the next {args.test_samples:,} articles for evaluation...")
+
+    # Re-connect to the dataset to stream the test split
+    ds = load_dataset(
+        "wikimedia/structured-wikipedia",
+        "enwiki_namespace_0",
+        split="train",
+        streaming=True,
     )
-    print("Type 'exit' or 'quit' to close the tool.")
-    print("--------------------------------------------------------------------\n")
+    iterator = iter(ds)
 
-    while True:
+    # Skip the articles used for vocabulary building and training
+    skip_count = max(args.vocab_samples, args.train_samples)
+    print(
+        f"Skipping the first {skip_count:,} training/vocab articles to reach the test split..."
+    )
+    for _ in range(skip_count):
         try:
-            user_input = input("👉 Enter text: ")
-        except (EOFError, KeyboardInterrupt):
+            next(iterator)
+        except StopIteration:
             break
 
-        trimmed = user_input.strip()
-        if trimmed == "exit" or trimmed == "quit":
+    correct_predictions = 0
+    total_predictions = 0
+    start_eval_time = time.time()
+
+    for i in range(args.test_samples):
+        try:
+            row = next(iterator)
+        except StopIteration:
             break
 
-        if not trimmed:
-            continue
+        abstract = row.get("abstract") or ""
+        description = row.get("description") or ""
 
-        tokens = tokenize(trimmed)
+        domain_idx = WikipediaDomain.determine_domain(description, abstract)
+        tokens = tokenize(f"{description} {abstract}")
+        word_indices = [vocab_map[t] for t in tokens if t in vocab_map]
+
+        if word_indices:
+            # Reset potentials and evaluate synchronously (extremely fast!)
+            field.reset_potentials()
+            field.process_stream_sync(word_indices)
+
+            expert_potentials = field.get_potentials()
+            predicted_idx = expert_potentials.index(max(expert_potentials))
+
+            if predicted_idx == domain_idx:
+                correct_predictions += 1
+            total_predictions += 1
+
+        if (i + 1) % 2000 == 0:
+            print(f"  Evaluated {i + 1:,}/{args.test_samples:,} test samples...")
+
+    eval_duration = time.time() - start_eval_time
+    accuracy = (
+        (correct_predictions / total_predictions) * 100
+        if total_predictions > 0
+        else 0.0
+    )
+    print("Evaluation Complete!")
+    print(
+        f"  ➔ Overall Accuracy: {accuracy:.2f}% ({correct_predictions:,}/{total_predictions:,})"
+    )
+    print(
+        f"  ➔ Evaluation Time : {eval_duration:.2f}s ({total_predictions / eval_duration:.2f} samples/sec)\n"
+    )
+
+    # 5. Live Routing Examples (Automated Demonstration)
+    print("--- Step 5: Live Routing Examples ---")
+    examples = [
+        (
+            "Quantum mechanics is a fundamental theory in physics that provides a description of the physical properties of nature at the scale of atoms and subatomic particles.",
+            "Science & Technology",
+        ),
+        (
+            "The Amazon River in South America is the largest river by discharge volume of water in the world, flowing through Peru, Colombia, and Brazil.",
+            "Geography & Places",
+        ),
+        (
+            "Marie Curie was a Polish and naturalized-French physicist and chemist who conducted pioneering research on radioactivity.",
+            "Biography & People",
+        ),
+        (
+            "The French Revolution was a period of radical political and societal change in France that began with the Estates General of 1789.",
+            "History & Events",
+        ),
+        (
+            "The Starry Night is an oil-on-canvas painting by the Dutch Post-Impressionist painter Vincent van Gogh, painted in June 1889.",
+            "Arts & Culture",
+        ),
+    ]
+
+    for text, expected in examples:
+        tokens = tokenize(text)
         field.reset_potentials()
+        recognized = [t for t in tokens if t in vocab_map]
+        word_indices = [vocab_map[t] for t in recognized]
 
-        recognized_words = [token for token in tokens if token in vocab_map]
-        if not recognized_words:
-            print("  ⚠️  No valid tokens found.")
-            continue
-
-        print("  Expert Activations:")
-
-        word_indices = [vocab_map[token] for token in recognized_words]
-        field.process_stream(word_indices, training_mode=False)
+        if word_indices:
+            field.process_stream(word_indices, training_mode=False)
 
         expert_potentials = field.get_potentials()
         predicted_idx = expert_potentials.index(max(expert_potentials))
-
-        for idx in range(5):
-            p = expert_potentials[idx]
-            cat_name = WikipediaDomain.name(idx)
-            print(f"    [{cat_name:22}]: {p:3}")
-
         winner = WikipediaDomain.name(predicted_idx)
-        print(f"\n  🏆 Winning Category: **{winner.upper()}** 🏆\n")
-        print("--------------------------------------------------------------------")
 
-    print("\nThank you for using the Wikipedia Classifier CLI Tool! Goodbye!")
+        print(f'  Input   : "{text}"')
+        print(f"  ➔ Winner: {winner.upper()} (Expected: {expected.upper()})\n")
+
+    print("====================================================================")
+    print("🎉 Wikipedia Classifier & Router completed successfully! 🎉")
+    print("====================================================================")
 
 
 if __name__ == "__main__":
