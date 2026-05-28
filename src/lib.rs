@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod ensemble_mesh;
 pub mod guard;
 pub mod memory;
 pub mod neuron_guard;
@@ -20,9 +21,13 @@ pub mod run;
 pub mod train;
 
 #[cfg(feature = "extension-module")]
+use crate::ensemble_mesh::{InsectoidSimulation, PermanentSpatiotemporalEnsembleMesh};
+#[cfg(feature = "extension-module")]
 use crate::neuron_guard::{ParallelRouter, ThreadBoundedNeuronField};
 #[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
+#[cfg(feature = "extension-module")]
+use std::collections::HashMap;
 #[cfg(feature = "extension-module")]
 use std::sync::atomic::{AtomicI32, Ordering};
 #[cfg(feature = "extension-module")]
@@ -298,9 +303,129 @@ impl NeuronGuardField {
 }
 
 /// The root Python Module Definition
+/// The root Python Module Definition
+#[cfg(feature = "extension-module")]
+#[pyclass]
+pub struct PyPermanentSpatiotemporalEnsembleMesh {
+    pub mesh: Arc<PermanentSpatiotemporalEnsembleMesh>,
+}
+
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl PyPermanentSpatiotemporalEnsembleMesh {
+    #[new]
+    fn new(size_per_field: usize) -> Self {
+        Self {
+            mesh: Arc::new(PermanentSpatiotemporalEnsembleMesh::new(size_per_field)),
+        }
+    }
+
+    #[pyo3(signature = (tokens, training_mode, correct_target=None, decay_factor=0.9))]
+    fn process_frame(
+        &self,
+        py: Python,
+        tokens: [u32; 3],
+        training_mode: bool,
+        correct_target: Option<u32>,
+        decay_factor: f32,
+    ) -> PyResult<()> {
+        py.allow_threads(|| {
+            self.mesh
+                .process_frame(tokens, training_mode, correct_target, decay_factor);
+            Ok(())
+        })
+    }
+
+    fn decay(&self, py: Python, decay_factor: f32) -> PyResult<()> {
+        py.allow_threads(|| {
+            self.mesh.decay(decay_factor);
+            Ok(())
+        })
+    }
+
+    fn get_active_nodes(&self, py: Python) -> PyResult<Vec<u32>> {
+        py.allow_threads(|| Ok(self.mesh.get_active_nodes()))
+    }
+
+    fn get_loop_intensities(&self, py: Python) -> PyResult<HashMap<u32, i32>> {
+        py.allow_threads(|| Ok(self.mesh.get_loop_intensities()))
+    }
+
+    fn get_structural_mutations(&self, py: Python) -> PyResult<Vec<(u32, u32, u32, u64)>> {
+        py.allow_threads(|| {
+            let mutations = self.mesh.get_structural_mutations();
+            let py_mutations = mutations
+                .into_iter()
+                .map(|m| (m.token_id, m.evicted_target, m.new_target, m.timestamp_us))
+                .collect();
+            Ok(py_mutations)
+        })
+    }
+}
+
+#[cfg(feature = "extension-module")]
+#[pyclass]
+pub struct PyInsectoidSimulation {
+    pub sim: InsectoidSimulation,
+}
+
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl PyInsectoidSimulation {
+    #[new]
+    fn new() -> Self {
+        Self {
+            sim: InsectoidSimulation::new(),
+        }
+    }
+
+    #[pyo3(signature = (training_mode, correct_target=None, decay_factor=0.9))]
+    fn step(
+        &mut self,
+        py: Python,
+        training_mode: bool,
+        correct_target: Option<u32>,
+        decay_factor: f32,
+    ) -> PyResult<()> {
+        py.allow_threads(|| {
+            self.sim.step(training_mode, correct_target, decay_factor);
+            Ok(())
+        })
+    }
+
+    fn get_phases(&self) -> Vec<f32> {
+        self.sim.phases.to_vec()
+    }
+
+    fn get_velocities(&self) -> Vec<f32> {
+        self.sim.velocities.to_vec()
+    }
+
+    fn get_active_nodes(&self, py: Python) -> PyResult<Vec<u32>> {
+        py.allow_threads(|| Ok(self.sim.mesh.get_active_nodes()))
+    }
+
+    fn get_loop_intensities(&self, py: Python) -> PyResult<HashMap<u32, i32>> {
+        py.allow_threads(|| Ok(self.sim.mesh.get_loop_intensities()))
+    }
+
+    fn get_structural_mutations(&self, py: Python) -> PyResult<Vec<(u32, u32, u32, u64)>> {
+        py.allow_threads(|| {
+            let mutations = self.sim.mesh.get_structural_mutations();
+            let py_mutations = mutations
+                .into_iter()
+                .map(|m| (m.token_id, m.evicted_target, m.new_target, m.timestamp_us))
+                .collect();
+            Ok(py_mutations)
+        })
+    }
+}
+
 #[cfg(feature = "extension-module")]
 #[pymodule]
 fn neuronguard(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NeuronGuardField>()?;
+    m.add_class::<PyPermanentSpatiotemporalEnsembleMesh>()?;
+    m.add_class::<PyInsectoidSimulation>()?;
     Ok(())
 }
