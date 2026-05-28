@@ -66,6 +66,11 @@ run = "uv run --no-project python example/expression_cloner/main.py"
 description = "Run the Wikipedia Structured Dataset Classifier & Router"
 run = "uv run --no-project python example/wikipedia_classifier/main.py"
 
+[tasks.wikipedia_classifier_large]
+description = "Run the Wikipedia Structured Dataset Classifier & Router"
+run = "uv run --no-project python example/wikipedia_classifier/main.py --train-samples 1000000 --test-samples 10000 --force-retrain"
+
+
 [tasks.run]
 run = "cargo run"
 

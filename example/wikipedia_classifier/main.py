@@ -46,130 +46,137 @@ class WikipediaDomain:
         return WikipediaDomain.NAMES[index]
 
     @staticmethod
-    def determine_domain(description, abstract):
-        """Determines the correct domain index based on keywords in the description or abstract."""
-        text = f"{description or ''} {abstract or ''}".lower()
+    def determine_domain(row):
+        """Determines the correct domain index based on community-curated Infobox template names.
+        Returns None if the domain is ambiguous or missing, so we can skip noisy data.
+        """
+        infoboxes_str = row.get("infoboxes")
+        if not infoboxes_str:
+            return None
+
+        try:
+            import json
+
+            infoboxes = json.loads(infoboxes_str)
+        except Exception:
+            return None
+
+        if not infoboxes or not isinstance(infoboxes, list):
+            return None
+
+        # Extract the name of the first infobox
+        infobox_name = infoboxes[0].get("name", "").lower()
+        if not infobox_name:
+            return None
 
         # 0: Science & Technology
-        sci_tech_keywords = {
-            "science",
-            "technology",
-            "physics",
-            "chemistry",
-            "software",
-            "computer",
-            "engine",
-            "space",
-            "aircraft",
-            "satellite",
-            "species",
-            "animal",
-            "plant",
-            "genus",
-            "biology",
-            "mathematics",
-            "astronomy",
-            "device",
-            "invention",
-            "system",
-            "discovery",
-            "enzyme",
+        sci_tech_infoboxes = {
+            "infobox company",
+            "infobox software",
+            "infobox aircraft",
+            "infobox spacecraft",
+            "infobox satellite",
+            "infobox device",
+            "infobox enzyme",
+            "infobox chemical",
+            "infobox drug",
+            "infobox medical condition",
+            "infobox programming language",
+            "infobox website",
+            "infobox processor",
+            "infobox telescope",
+            "infobox taxon",
+            "infobox species",
+            "infobox plant",
+            "infobox animal",
+            "infobox mineral",
         }
         # 1: Geography & Places
-        geography_keywords = {
-            "city",
-            "town",
-            "village",
-            "river",
-            "mountain",
-            "lake",
-            "island",
-            "country",
-            "province",
-            "capital",
-            "located",
-            "municipality",
-            "region",
-            "state",
-            "county",
-            "geography",
-            "ocean",
+        geography_infoboxes = {
+            "infobox settlement",
+            "infobox city",
+            "infobox town",
+            "infobox village",
+            "infobox river",
+            "infobox mountain",
+            "infobox lake",
+            "infobox island",
+            "infobox country",
+            "infobox subdivision",
+            "infobox body of water",
+            "infobox road",
+            "infobox bridge",
+            "infobox park",
+            "infobox forest",
         }
         # 2: Biography & People
-        biography_keywords = {
-            "born",
-            "died",
-            "politician",
-            "actor",
-            "singer",
-            "writer",
-            "player",
-            "athlete",
-            "officer",
-            "king",
-            "queen",
-            "emperor",
-            "president",
-            "minister",
-            "activist",
-            "founder",
-            "director",
+        biography_infoboxes = {
+            "infobox person",
+            "infobox biography",
+            "infobox officeholder",
+            "infobox artist",
+            "infobox writer",
+            "infobox actor",
+            "infobox musical artist",
+            "infobox athlete",
+            "infobox footballer",
+            "infobox politician",
+            "infobox scientist",
+            "infobox philosopher",
+            "infobox military person",
+            "infobox royalty",
+            "infobox architect",
+            "infobox engineer",
         }
         # 3: History & Events
-        history_keywords = {
-            "war",
-            "battle",
-            "election",
-            "treaty",
-            "dynasty",
-            "empire",
-            "revolution",
-            "founded",
-            "established",
-            "century",
-            "year",
-            "ancient",
-            "historical",
-            "reign",
-            "parliamentary",
+        history_infoboxes = {
+            "infobox election",
+            "infobox battle",
+            "infobox war",
+            "infobox treaty",
+            "infobox historic site",
+            "infobox military conflict",
+            "infobox historical event",
+            "infobox earthquake",
+            "infobox hurricane",
+            "infobox civil conflict",
+            "infobox trial",
         }
         # 4: Arts & Culture
-        arts_keywords = {
-            "film",
-            "movie",
-            "book",
-            "novel",
-            "album",
-            "song",
-            "music",
-            "painting",
-            "sculpture",
-            "theatre",
-            "game",
-            "play",
-            "artist",
-            "composer",
-            "band",
-            "museum",
-            "exhibition",
+        arts_infoboxes = {
+            "infobox film",
+            "infobox book",
+            "infobox novel",
+            "infobox album",
+            "infobox song",
+            "infobox artwork",
+            "infobox video game",
+            "infobox play",
+            "infobox television",
+            "infobox fictional character",
+            "infobox comic book",
+            "infobox opera",
+            "infobox musical",
         }
 
-        words = set(tokenize(text))
+        # Check for exact or partial matches in infobox names
+        for name in sci_tech_infoboxes:
+            if name in infobox_name:
+                return 0
+        for name in geography_infoboxes:
+            if name in infobox_name:
+                return 1
+        for name in biography_infoboxes:
+            if name in infobox_name:
+                return 2
+        for name in history_infoboxes:
+            if name in infobox_name:
+                return 3
+        for name in arts_infoboxes:
+            if name in infobox_name:
+                return 4
 
-        scores = [
-            len(words.intersection(sci_tech_keywords)),
-            len(words.intersection(geography_keywords)),
-            len(words.intersection(biography_keywords)),
-            len(words.intersection(history_keywords)),
-            len(words.intersection(arts_keywords)),
-        ]
-
-        max_score = max(scores)
-        if max_score > 0:
-            return scores.index(max_score)
-
-        # Default fallback
-        return 0
+        return None
 
 
 def main():
@@ -369,7 +376,10 @@ def main():
             abstract = row.get("abstract") or ""
             description = row.get("description") or ""
 
-            domain_idx = WikipediaDomain.determine_domain(description, abstract)
+            domain_idx = WikipediaDomain.determine_domain(row)
+            if domain_idx is None:
+                continue
+
             tokens = tokenize(f"{description} {abstract}")
             word_indices = [vocab_map[t] for t in tokens if t in vocab_map]
 
@@ -379,8 +389,13 @@ def main():
                 )
                 trained_count += 1
 
-            if (i + 1) % 10000 == 0:
-                print(f"  Processed {i + 1:,}/{train_samples:,} streamed samples...")
+            if (trained_count) % 10000 == 0:
+                print(
+                    f"  Trained on {trained_count:,}/{train_samples:,} valid streamed samples..."
+                )
+
+            if trained_count >= train_samples:
+                break
 
         duration = time.time() - start_time
         print(
@@ -420,7 +435,7 @@ def main():
     total_predictions = 0
     start_eval_time = time.time()
 
-    for i in range(args.test_samples):
+    for i in range(args.test_samples * 5):  # Read more to find enough valid samples
         try:
             row = next(iterator)
         except StopIteration:
@@ -429,7 +444,10 @@ def main():
         abstract = row.get("abstract") or ""
         description = row.get("description") or ""
 
-        domain_idx = WikipediaDomain.determine_domain(description, abstract)
+        domain_idx = WikipediaDomain.determine_domain(row)
+        if domain_idx is None:
+            continue
+
         tokens = tokenize(f"{description} {abstract}")
         word_indices = [vocab_map[t] for t in tokens if t in vocab_map]
 
@@ -445,8 +463,13 @@ def main():
                 correct_predictions += 1
             total_predictions += 1
 
-        if (i + 1) % 2000 == 0:
-            print(f"  Evaluated {i + 1:,}/{args.test_samples:,} test samples...")
+        if total_predictions >= args.test_samples:
+            break
+
+        if (total_predictions) % 2000 == 0:
+            print(
+                f"  Evaluated {total_predictions:,}/{args.test_samples:,} test samples..."
+            )
 
     eval_duration = time.time() - start_eval_time
     accuracy = (
