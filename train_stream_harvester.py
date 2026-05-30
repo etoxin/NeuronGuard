@@ -126,4 +126,7 @@ def harvest_and_train(urls, vocab_size=50000):
 
 
 if __name__ == "__main__":
-    harvest_and_train(BOOK_CATALOG)
+    import os
+
+    vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
+    harvest_and_train(BOOK_CATALOG, vocab_size=vocab_size)

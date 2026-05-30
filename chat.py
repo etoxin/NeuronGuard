@@ -25,6 +25,9 @@ def chat():
     print("🧠 Welcome to the NeuronGuard-Gen (v1.0-Alpha) Interactive Chat!")
     print("======================================================================")
 
+    vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
+    temperature = float(os.environ.get("TEMPERATURE", 0.7))
+
     vocab_file = "wikipedia_vocab.txt"
     weights_file = "wikipedia_weights.txt"
 
@@ -38,12 +41,14 @@ def chat():
     with open(vocab_file, "r") as f:
         vocab = json.load(f)
 
-    tokenizer = NeuronGuardTokenizer(vocab_size=50000)
+    tokenizer = NeuronGuardTokenizer(vocab_size=vocab_size)
     tokenizer.vocab = vocab
     tokenizer.inverse_vocab = {v: k for k, v in vocab.items()}
 
     print("Allocating neuromorphic memory matrix...")
-    trainer_field = ng.NeuronGuardTrainerField(sensory_count=50000, motor_count=50000)
+    trainer_field = ng.NeuronGuardTrainerField(
+        sensory_count=vocab_size, motor_count=vocab_size
+    )
 
     print("Loading pre-trained synaptic weights...")
     trainer_field.load_weights_from_b64(weights_file)
@@ -91,7 +96,6 @@ def chat():
 
             # Autoregressive generation loop
             max_generation_length = 20
-            temperature = 0.7
 
             for _ in range(max_generation_length):
                 trainer_field.process_step_sync([current_token_id])

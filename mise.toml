@@ -1,81 +1,24 @@
 [tools]
 rust = "latest"
-python = "3.12"
 uv = "latest"
+python = "3.12"
 
-[tasks.download_data]
-description = "Download and extract AG News, DBpedia, and Credit Card Fraud datasets"
-run = """
-mkdir -p example/ag_news/data
-curl -s -o example/ag_news/data/train.csv https://raw.githubusercontent.com/mhjabreel/CharCnn_Keras/master/data/ag_news_csv/train.csv
-curl -s -o example/ag_news/data/test.csv https://raw.githubusercontent.com/mhjabreel/CharCnn_Keras/master/data/ag_news_csv/test.csv
-mkdir -p example/dbpedia
-curl -s -o example/dbpedia/dbpedia_csv.tgz https://s3.amazonaws.com/fast-ai-nlp/dbpedia_csv.tgz
-tar -xzf example/dbpedia/dbpedia_csv.tgz -C example/dbpedia/
-rm example/dbpedia/dbpedia_csv.tgz
-mkdir -p example/fraud_scanner/data
-curl -s -r 0-10485760 -o example/fraud_scanner/data/creditcard_subset.csv https://raw.githubusercontent.com/nsethi31/Kaggle-Data-Credit-Card-Fraud-Detection/master/creditcard.csv
-"""
-
-[tasks.poc]
-run = "cargo run --bin neuron-poc"
-
-[tasks.getting_started]
-description = "Run the NeuronGuard Getting Started Guide"
-run = "uv run --no-project python example/getting_started/main.py"
-
-[tasks.advanced]
-description = "Run the NeuronGuard Advanced Multi-Threaded Simulation"
-run = "uv run --no-project python example/advanced/main.py"
-
-[tasks.spatiotemporal_mesh]
-description = "Run the NeuronGuard Spatiotemporal Ensemble Mesh & Insectoid Simulation"
-run = "uv run --no-project python example/spatiotemporal_mesh/main.py"
-
-[tasks.fraud_scanner]
-description = "Run the NeuronGuard High-Frequency Financial Fraud Scanner"
-run = "uv run --no-project python example/fraud_scanner/main.py"
-
-[tasks.llm_router]
-run = "cargo run --bin llm-router"
-
-[tasks.ag_news]
-run = "uv run --no-project python example/ag_news/main.py"
-
-[tasks.dbpedia]
-description = "Run the DBpedia Classifier & Router"
-run = "uv run --no-project python example/dbpedia/main.py"
-
-[tasks.dbpedia_benchmark]
-description = "Run the PyTorch vs NeuronGuard DBpedia benchmark"
-run = "uv run --no-project python example/dbpedia/pytorch_benchmark.py"
-
-[tasks.giant_dataset]
-description = "Run the Real Amazon 3,000,000 Ingestion Benchmark"
-run = "uv run --no-project python example/giant_dataset/main.py"
-
-[tasks.giant_dataset_benchmark]
-description = "Run the PyTorch vs NeuronGuard 3M Giant Benchmark"
-run = "uv run --no-project python example/giant_dataset/pytorch_benchmark.py"
-
-[tasks.expression_cloner]
-description = "Run the NeuronGuard Pure Python Online Expression Cloner & Detector"
-run = "uv run --no-project python example/expression_cloner/main.py"
-
-[tasks.run]
-run = "cargo run"
+[vars]
+train_seconds = "25"
+vocab_size = "50000"
+temperature = "0.7"
 
 [tasks.build]
 description = "Build the Rust library and binaries"
-run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo build"
+run = "cargo build --release"
 
 [tasks.test]
 description = "Run all Rust unit tests"
-run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test"
+run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test --no-default-features"
 
 [tasks.py-setup]
 description = "Set up the Python virtual environment using uv"
-run = "uv venv && uv pip install maturin tiktoken datasets opencv-python"
+run = "uv venv && uv pip install maturin tiktoken datasets requests"
 
 [tasks.py-build]
 description = "Build and install the Python extension using uv and maturin"
@@ -85,18 +28,21 @@ run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 uv run --no-project maturin develop
 description = "Run the Python verification script"
 run = "uv run --no-project python verify.py"
 
-[tasks.clean_models]
-description = "Clean up old pre-trained models and vocab files"
-run = "rm -f example/dbpedia/dbpedia_weights.bin example/dbpedia/dbpedia_vocab.txt"
-
 [tasks.train-gen]
 description = "Run the generative SNN-LM training pipeline"
 run = "uv run --no-project python train_generative_poc.py"
+env = { TRAIN_SECONDS = "{{vars.train_seconds}}", VOCAB_SIZE = "{{vars.vocab_size}}" }
 
 [tasks.train-stream]
 description = "Run the line-rate stream-training book harvester pipeline"
 run = "uv run --no-project python train_stream_harvester.py"
+env = { VOCAB_SIZE = "{{vars.vocab_size}}" }
 
 [tasks.chat]
 description = "Start the interactive chat session with the SNN-LM"
 run = "uv run --no-project python chat.py"
+env = { VOCAB_SIZE = "{{vars.vocab_size}}", TEMPERATURE = "{{vars.temperature}}" }
+
+[tasks.clean_models]
+description = "Clean up old pre-trained models and vocab files"
+run = "rm -f wikipedia_weights.txt wikipedia_vocab.txt test_weights.txt"

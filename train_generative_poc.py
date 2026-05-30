@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+import os
 import time
 
 import neuronguard as ng
@@ -28,8 +29,10 @@ def run_generative_training():
     print("🧠 NeuronGuard-Gen Training Pipeline & Weight Generator")
     print("======================================================================")
 
-    print("Initializing 50k Subword Vocabulary...")
-    vocab_size = 50000
+    vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
+    train_seconds = float(os.environ.get("TRAIN_SECONDS", 25.0))
+
+    print(f"Initializing {vocab_size} Subword Vocabulary...")
     tokenizer = NeuronGuardTokenizer(vocab_size=vocab_size)
 
     # Save vocabulary file
@@ -68,7 +71,10 @@ def run_generative_training():
                 trainer_field.train_stream_step_sync(token_indices)
 
             article_count += 1
-            if article_count >= 1000000 or (time.perf_counter() - start_time) > 25.0:
+            if (
+                article_count >= 1000000
+                or (time.perf_counter() - start_time) > train_seconds
+            ):
                 break
     except Exception as e:
         print(f"\n⚠️ Hugging Face stream unavailable or timed out: {e}")
@@ -89,7 +95,10 @@ def run_generative_training():
                 trainer_field.train_stream_step_sync(token_indices)
 
             article_count += 1
-            if article_count >= 1000000 or (time.perf_counter() - start_time) > 25.0:
+            if (
+                article_count >= 1000000
+                or (time.perf_counter() - start_time) > train_seconds
+            ):
                 break
 
     training_duration = time.perf_counter() - start_time
