@@ -638,6 +638,23 @@ impl PyNeuronGuardTrainerField {
         std::fs::write(path, b64_str)?;
         Ok(())
     }
+
+    fn load_weights_from_b64(&mut self, path: String) -> PyResult<()> {
+        self.trainer.load_weights_from_b64(&path)?;
+        Ok(())
+    }
+
+    fn process_step_sync(&self, token_indices: Vec<u32>) {
+        self.trainer.process_step_sync(token_indices);
+    }
+
+    fn decay_potentials(&self, alpha: f32) {
+        self.trainer.decay_potentials(alpha);
+    }
+
+    fn get_potentials(&self) -> Vec<i16> {
+        self.trainer.get_potentials()
+    }
 }
 
 #[cfg(feature = "extension-module")]

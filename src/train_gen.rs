@@ -148,6 +148,72 @@ impl NeuronGuardTrainerField {
         }
         bytes
     }
+
+    /// Loads and deserializes the synaptic matrix from a base64-encoded text file.
+    pub fn load_weights_from_b64(&mut self, path: &str) -> std::io::Result<()> {
+        let b64_str = std::fs::read_to_string(path)?;
+        let bytes = base64_decode(&b64_str);
+
+        let mut offset = 0;
+        for line in &mut self.lines {
+            if offset + 64 > bytes.len() {
+                break;
+            }
+            for j in 0..8 {
+                line.synapses_positive[j] =
+                    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+                offset += 4;
+            }
+            for j in 0..8 {
+                line.synapses_negative[j] =
+                    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+                offset += 4;
+            }
+        }
+        Ok(())
+    }
+
+    /// Processes a stream of token indices synchronously for inference.
+    pub fn process_step_sync(&self, token_indices: Vec<u32>) {
+        for &xt in &token_indices {
+            let xt = xt as usize;
+            if xt >= self.sensory_count {
+                continue;
+            }
+            let line = &self.lines[xt];
+            for j in 0..256 {
+                let word_idx = j >> 5;
+                let bit_idx = j & 31;
+                let target_token_id = (xt + j) % self.motor_count;
+
+                if (line.synapses_positive[word_idx] & (1 << bit_idx)) != 0 {
+                    self.potentials[target_token_id].fetch_add(1, Ordering::Relaxed);
+                }
+                if (line.synapses_negative[word_idx] & (1 << bit_idx)) != 0 {
+                    self.potentials[target_token_id].fetch_sub(1, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    /// Applies a fixed decay factor to all potentials.
+    pub fn decay_potentials(&self, alpha: f32) {
+        for pot in &self.potentials {
+            let current = pot.load(Ordering::Relaxed);
+            if current != 0 {
+                let decayed = (current as f32 * alpha) as i16;
+                pot.store(decayed, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Returns the current potentials of all motor neurons.
+    pub fn get_potentials(&self) -> Vec<i16> {
+        self.potentials
+            .iter()
+            .map(|pot| pot.load(Ordering::Relaxed))
+            .collect()
+    }
 }
 
 /// High-performance, zero-dependency Base64 encoder.
@@ -184,6 +250,31 @@ pub fn base64_encode(bytes: &[u8]) -> String {
         }
     }
     result
+}
+
+/// High-performance, zero-dependency Base64 decoder.
+pub fn base64_decode(b64_str: &str) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut buffer = 0u32;
+    let mut bits = 0;
+    for c in b64_str.chars() {
+        let val = match c {
+            'A'..='Z' => c as u32 - 'A' as u32,
+            'a'..='z' => c as u32 - 'a' as u32 + 26,
+            '0'..='9' => c as u32 - '0' as u32 + 52,
+            '+' => 62,
+            '/' => 63,
+            '=' => continue,
+            _ => continue, // Ignore whitespace/newlines
+        };
+        buffer = (buffer << 6) | val;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((buffer >> bits) as u8);
+        }
+    }
+    bytes
 }
 
 #[cfg(test)]

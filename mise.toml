@@ -88,3 +88,11 @@ run = "uv run --no-project python verify.py"
 [tasks.clean_models]
 description = "Clean up old pre-trained models and vocab files"
 run = "rm -f example/dbpedia/dbpedia_weights.bin example/dbpedia/dbpedia_vocab.txt"
+
+[tasks.train-gen]
+description = "Run the generative SNN-LM training pipeline"
+run = "uv run --no-project python train_generative_poc.py"
+
+[tasks.chat]
+description = "Start the interactive chat session with the SNN-LM"
+run = "uv run --no-project python chat.py"
