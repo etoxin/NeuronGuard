@@ -12,13 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod attention;
+pub mod cpg;
 pub mod ensemble_mesh;
+pub mod gen_memory;
 pub mod guard;
 pub mod memory;
 pub mod neuron_guard;
 pub mod queue;
 pub mod run;
 pub mod train;
+pub mod wta;
 
 #[cfg(feature = "extension-module")]
 use crate::ensemble_mesh::{InsectoidSimulation, PermanentSpatiotemporalEnsembleMesh};
