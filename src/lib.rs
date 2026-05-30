@@ -25,9 +25,15 @@ pub mod train;
 pub mod wta;
 
 #[cfg(feature = "extension-module")]
+use crate::attention::SpikingAttentionState;
+#[cfg(feature = "extension-module")]
 use crate::ensemble_mesh::{InsectoidSimulation, PermanentSpatiotemporalEnsembleMesh};
 #[cfg(feature = "extension-module")]
+use crate::gen_memory::PermanentNeuromorphicLine;
+#[cfg(feature = "extension-module")]
 use crate::neuron_guard::{ParallelRouter, ThreadBoundedNeuronField};
+#[cfg(feature = "extension-module")]
+use crate::wta::HierarchicalWinnerTakeAll;
 #[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
 #[cfg(feature = "extension-module")]
@@ -426,10 +432,228 @@ impl PyInsectoidSimulation {
 }
 
 #[cfg(feature = "extension-module")]
+#[pyclass]
+#[derive(Clone)]
+pub struct PyPermanentNeuromorphicLine {
+    pub line: PermanentNeuromorphicLine,
+}
+
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl PyPermanentNeuromorphicLine {
+    #[new]
+    fn new() -> Self {
+        Self {
+            line: PermanentNeuromorphicLine {
+                synapses_positive: [0; 8],
+                synapses_negative: [0; 8],
+                loopback_address: 0,
+                loopback_energy: 0,
+                local_potential: 0,
+                activation_threshold: 0,
+                _padding: [0; 54],
+            },
+        }
+    }
+
+    #[getter]
+    fn synapses_positive(&self) -> Vec<u32> {
+        self.line.synapses_positive.to_vec()
+    }
+
+    #[setter]
+    fn set_synapses_positive(&mut self, val: Vec<u32>) {
+        for i in 0..8.min(val.len()) {
+            self.line.synapses_positive[i] = val[i];
+        }
+    }
+
+    #[getter]
+    fn synapses_negative(&self) -> Vec<u32> {
+        self.line.synapses_negative.to_vec()
+    }
+
+    #[setter]
+    fn set_synapses_negative(&mut self, val: Vec<u32>) {
+        for i in 0..8.min(val.len()) {
+            self.line.synapses_negative[i] = val[i];
+        }
+    }
+
+    #[getter]
+    fn loopback_address(&self) -> u32 {
+        self.line.loopback_address
+    }
+
+    #[setter]
+    fn set_loopback_address(&mut self, val: u32) {
+        self.line.loopback_address = val;
+    }
+
+    #[getter]
+    fn loopback_energy(&self) -> u8 {
+        self.line.loopback_energy
+    }
+
+    #[setter]
+    fn set_loopback_energy(&mut self, val: u8) {
+        self.line.loopback_energy = val;
+    }
+
+    #[getter]
+    fn local_potential(&self) -> i16 {
+        self.line.local_potential
+    }
+
+    #[setter]
+    fn set_local_potential(&mut self, val: i16) {
+        self.line.local_potential = val;
+    }
+
+    #[getter]
+    fn activation_threshold(&self) -> i16 {
+        self.line.activation_threshold
+    }
+
+    #[setter]
+    fn set_activation_threshold(&mut self, val: i16) {
+        self.line.activation_threshold = val;
+    }
+}
+
+#[cfg(feature = "extension-module")]
+#[pyclass]
+pub struct PySpikingAttentionState {
+    pub state: SpikingAttentionState,
+}
+
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl PySpikingAttentionState {
+    #[new]
+    fn new() -> Self {
+        Self {
+            state: SpikingAttentionState::new(),
+        }
+    }
+
+    fn reset(&mut self) {
+        self.state.reset();
+    }
+
+    fn update(&mut self, k: [u32; 8], v: [i16; 8]) {
+        self.state.update(&k, &v);
+    }
+
+    fn query(&self, q: [u32; 8]) -> [i16; 8] {
+        self.state.query(&q)
+    }
+
+    fn get_matrix(&self) -> Vec<Vec<i16>> {
+        self.state.s.iter().map(|row| row.to_vec()).collect()
+    }
+}
+
+#[cfg(feature = "extension-module")]
+#[pyclass]
+pub struct PyHierarchicalWinnerTakeAll {
+    pub wta: HierarchicalWinnerTakeAll,
+}
+
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl PyHierarchicalWinnerTakeAll {
+    #[new]
+    fn new() -> Self {
+        Self {
+            wta: HierarchicalWinnerTakeAll::new(),
+        }
+    }
+
+    fn reset(&mut self) {
+        self.wta.reset();
+    }
+
+    #[getter]
+    fn macro_potentials(&self) -> Vec<i32> {
+        self.wta.macro_potentials.to_vec()
+    }
+
+    #[setter]
+    fn set_macro_potentials(&mut self, val: Vec<i32>) {
+        for i in 0..50.min(val.len()) {
+            self.wta.macro_potentials[i] = val[i];
+        }
+    }
+
+    #[getter]
+    fn micro_potentials(&self) -> Vec<i32> {
+        self.wta.micro_potentials.clone()
+    }
+
+    #[setter]
+    fn set_micro_potentials(&mut self, val: Vec<i32>) {
+        self.wta.micro_potentials = val;
+    }
+
+    fn select_macro_cluster(&self) -> usize {
+        self.wta.select_macro_cluster()
+    }
+
+    fn select_winning_token(&self, winning_cluster: usize) -> u32 {
+        self.wta.select_winning_token(winning_cluster)
+    }
+}
+
+#[cfg(feature = "extension-module")]
+#[pyclass]
+pub struct PyCPGManager;
+
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl PyCPGManager {
+    #[staticmethod]
+    fn propagate_echo(
+        line: &PyPermanentNeuromorphicLine,
+        mut pool: Vec<PyPermanentNeuromorphicLine>,
+    ) -> Vec<PyPermanentNeuromorphicLine> {
+        let mut raw_pool: Vec<PermanentNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
+        crate::cpg::propagate_cpg_echo(&line.line, &mut raw_pool);
+        for (p, r) in pool.iter_mut().zip(raw_pool.iter()) {
+            p.line = *r;
+        }
+        pool
+    }
+
+    #[staticmethod]
+    fn decay_potentials(
+        mut pool: Vec<PyPermanentNeuromorphicLine>,
+        alpha: f32,
+    ) -> Vec<PyPermanentNeuromorphicLine> {
+        let mut raw_pool: Vec<PermanentNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
+        crate::cpg::decay_potentials(&mut raw_pool, alpha);
+        for (p, r) in pool.iter_mut().zip(raw_pool.iter()) {
+            p.line = *r;
+        }
+        pool
+    }
+
+    #[staticmethod]
+    fn decay_accumulators(mut accumulators: [i16; 256], alpha: f32) -> [i16; 256] {
+        crate::cpg::decay_accumulators(&mut accumulators, alpha);
+        accumulators
+    }
+}
+
+#[cfg(feature = "extension-module")]
 #[pymodule]
 fn neuronguard(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NeuronGuardField>()?;
     m.add_class::<PyPermanentSpatiotemporalEnsembleMesh>()?;
     m.add_class::<PyInsectoidSimulation>()?;
+    m.add_class::<PyPermanentNeuromorphicLine>()?;
+    m.add_class::<PySpikingAttentionState>()?;
+    m.add_class::<PyHierarchicalWinnerTakeAll>()?;
+    m.add_class::<PyCPGManager>()?;
     Ok(())
 }

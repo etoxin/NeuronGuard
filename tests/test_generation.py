@@ -62,6 +62,29 @@ class TestNeuronGuardGen(unittest.TestCase):
         decoded = self.tokenizer.decode(generated)
         self.assertIsInstance(decoded, str)
 
+    def test_ffi_bindings(self):
+        import neuronguard as ng
+
+        # Test PyPermanentNeuromorphicLine
+        line = ng.PyPermanentNeuromorphicLine()
+        line.synapses_positive = [1, 2, 3, 4, 5, 6, 7, 8]
+        self.assertEqual(line.synapses_positive, [1, 2, 3, 4, 5, 6, 7, 8])
+
+        # Test PySpikingAttentionState
+        state = ng.PySpikingAttentionState()
+        state.reset()
+        state.update([1, 0, 0, 0, 0, 0, 0, 0], [1, 2, 3, 4, 5, 6, 7, 8])
+        res = state.query([1, 0, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(res, [1, 2, 3, 4, 5, 6, 7, 8])
+
+        # Test PyHierarchicalWinnerTakeAll
+        wta = ng.PyHierarchicalWinnerTakeAll()
+        wta.reset()
+        potentials = [0] * 50
+        potentials[5] = 100
+        wta.macro_potentials = potentials
+        self.assertEqual(wta.select_macro_cluster(), 5)
+
 
 if __name__ == "__main__":
     unittest.main()
