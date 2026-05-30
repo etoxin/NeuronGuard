@@ -1,232 +1,139 @@
-### Product Design Document: NeuronGuard-Gen (v1.0-Alpha)
+This updates our core architecture, permanently migrating the `NeuronGuard-Gen` neuromorphic memory registers from a restrictive ternary configuration ($\{-1, 0, 1\}$) to a high-resolution **16-bit Signed Fixed-Point Integer (`i16`) Synaptic Array**.
 
-**Project Title:** MatMul-Free Spiking Large Language Model Core
-
-**Author:** Lead Software Engineer
-
-**Status:** Draft / Active Specification
-
-**Implementation Language:** Rust (with zero-overhead Python FFI bindings via `pyo3`)
+By allocating a full 2 bytes per synapse, the system introduces a vast statistical range while maintaining zero-overhead, single-pass execution alignment directly across modern 128-byte hardware cache boundaries.
 
 ---
 
-## 1. Executive Summary & Design Constraints
+# Product Requirement Document (PRD): High-Resolution 16-Bit Synaptic Core Migration
 
-NeuronGuard-Gen is a hardware-conscious, autoregressive, generative Spiking Neural Network Language Model (SNN-LM). It scales the original NeuronGuard event-driven classification paradigm into a low-latency, conversational chat intelligence.
+**Document Version:** 2.0.0
 
-The core architectural mission remains absolute: **Compute must adapt to the physical constraints of localized silicon.** The system replaces continuous floating-point Matrix Multiplications ($\text{MatMul}$) with discrete binary event spikes, ternary synaptic weights ($\{-1, 0, 1\}$), and strict 64-byte hardware cache alignment.
+**Status:** Approved / Active Specification
 
-### Core Hard Constraints:
+**Component:** 16-Bit Cache-Aligned Synaptic Line & Register Layout
 
-1. **Zero Heap Allocations in the Inference Path:** All memory states must be pre-allocated and stack- or static-resident.
-2. **Cache-Line Bound:** Every neural execution line must map to exactly 64 bytes to prevent cache thrashing and maximize L1/L2 data locality on standard CPU performance cores.
-3. **No External Deep Learning Dependencies:** Zero reliance on PyTorch, LibTorch, or tensor runtimes. Compiled completely via raw Rust primitives.
+**Implementation Language:** Rust (Core Native Memory Layout)
 
 ---
 
-## 2. System Architecture & High-Level Data Flow
+## 1. Core Objective & Scope
 
-The system transitions from an entire-document evidence sieve to a continuous, sequential autoregressive clock cycle operating at linear $O(N)$ computational complexity.
+The objective of this migration is to completely eliminate **synaptic saturation blinding** caused by the previous ternary layout. The subsystem must expand the relational connection weight range to support deep statistical tracking across large language text corpuses (e.g., 500+ books), allowing the model to naturally rank word sequence probabilities without framework memory inflation.
+
+The system must maintain strict alignment with **128-byte physical CPU cache lines** to ensure single-cycle integer arithmetic passes, keeping training ingestion throughput safely above the baseline target milestone of **> 120,000 tokens per second**.
+
+---
+
+## 2. Hardware Memory Register Mapping
+
+To achieve maximum data density without crossing byte boundaries or incurring misaligned memory access penalties, the 128-byte cache row is partitioned into a high-density synapse block and localized context accumulators.
 
 ```
-      [ Input Context String / Prompt ]
-                     │
-                     ▼
-  [ Python Frontend: BPE/N-Gram Tokenizer Sieve ] ➔ Chunks text to 16-bit Token IDs
-                     │
-                     ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ RUST NEURONGUARD CORE ENGINE (L1/L2 Cache Resident Runtime)                  │
-│                                                                              │
-│  1. Spiking Linear Attention Layer (MatMul-Free Pipeline)                    │
-│     Evaluates incoming token spikes sequentially: S_t = S_{t-1} + (K_t^T × V_t)│
-│     * Operations map entirely to integer pointer leaps and sparse additions. │
-│                                                                              │
-│  2. Central Pattern Generators (Recurrent State Echo Loops)                  │
-│     Propagates dynamic context backward to maintain short-term memory.       │
-│                                                                              │
-│  3. Continuous Synaptic Leak / Decay Loop                                    │
-│     Shaves energy trail on every single execution pass: E_t = E_{t-1} × α    │
-└──────────────────────────────────────────────────────────────────────────────┘
-                     │
-                     ▼
- [ Hierarchical Winner-Take-All Selector ] ➔ Two-tier cascading tree search
-                     │
-                     ▼
-      [ Raw Potential Index Array Out ]
-                     │
-                     ▼
-  [ Python Runner Layer: Stochastic Sampling ] ➔ Temperature/Top-P Filter Block
-                     │
-                     ▼
-       [ Emitted Next Token ID ] ──( Appends into Sensory Array Input Loop )──
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ PERFECTLY ALIGNED 128-BYTE NEUROMORPHIC CACHE LINE                                                           │
+├──────────────────────────────────────────────────────────────────────────────┬───────────────┬───────────────┤
+│ 32 Synaptic Weights Array (`[i16; 32]`)                                      │ Context Core  │ Zero-Padding  │
+│ Range: -32,768 to +32,767                                                    │ Accumulators  │ Stack Guard   │
+│ ──► [Consumes exactly 64 Bytes] ◄──                                          │ [13 Bytes]    │ [51 Bytes]    │
+└──────────────────────────────────────────────────────────────────────────────┴───────────────┴───────────────┘
 
 ```
 
 ---
 
-## 3. Core Component Specifications
+## 3. Functional Requirements
 
-### 3.1 Subword Tokenization Frontend (Python Pre-Processor)
+### 3.1 16-Bit Cache-Resident Structural Layout (Rust Core)
 
-To completely decouple structural linguistic text parsing from the raw execution core, vocabulary tokenization is managed at the input script layer.
+* **FR-1.1:** The native `NeuronGuardTrainerField` must pre-allocate memory rows using the strict `#[repr(align(128))]` primitive layout flag, matching the operational properties of standard CPU prefetch hardware.
+* **FR-1.2:** The synapse block within the line structure must be declared as a continuous array of thirty-two 16-bit signed integers (`synapses_weights: [i16; 32]`).
+* **FR-1.3:** The accumulator potentials (`local_potential` and `activation_threshold`) must be upgraded to 32-bit signed integers (`i32`) to prevent integer overflow during high-velocity Hebbian summation loops.
 
-* **Mechanism:** A highly compressed, local Byte-Pair Encoding (BPE) dictionary mapping up to 50,000 subword fragments down to flat `u16` Token IDs.
-* **Topological Fields:** Input text is split concurrently across three semantic fields:
-* *Field 0:* Lexical word fragments.
-* *Field 1:* Formatting syntax and structure density.
-* *Field 2:* Micro-temporal distance profiles between adjacent nouns/entities.
+### 3.2 Single-Cycle Non-Unpacking Arithmetic Pass
 
+* **FR-2.1:** When a token spike occurs, the training engine must execute weight additions directly using native raw pointer offsets without performing any bitwise unpacking, logical shifting, or floating-point conversions.
+* **FR-2.2:** Weight values must saturate gracefully at the boundaries (clamping at $-32,768$ and $+32,767$ via `saturating_add` and `saturating_sub` operations) rather than rolling over, protecting the structural integrity of the linguistic pathways.
 
+### 3.3 Multi-Threaded Compare-And-Swap (CAS) Integrity
 
-### 3.2 MatMul-Free Spiking Linear Attention (Rust Layer)
-
-Instead of matching every token against every other token over a quadratic $O(N^2)$ grid, attention is modeled as a recurrent linear stream:
-
-$$\text{Attention}(Q, K, V) = Q \times (K^T \times V)$$
-
-* **Ternary Synaptic Weights ($W \in \{-1, 0, 1\}$):** Multi-bit floating-point weights are completely eliminated. Sensory state evaluations are binary masked:
-* `1`: Add sensory activation energy directly to the accumulator.
-* `-1`: Invert sign bit / subtract energy (inhibitory loop).
-* `0`: Skip memory address evaluation entirely.
-
-
-* **Integer Additions Core:** The attention pooling calculation ($K^T \times V$) operates as a sparse array of integer additions, entirely skipping the floating-point ALUs of the processor.
-
-### 3.3 Central Pattern Generators (CPGs) & Leak Dynamics
-
-* **Recurrent Echoes:** Working memory across paragraph boundaries is maintained by dedicating backward-routing slots inside every active neuromorphic line. When a localized domain pattern spikes, it echoes energy backward to preceding cache locations.
-* **Leak Channels:** To prevent the 256 global memory accumulators from saturating, an atomic background loop applies a fixed decay factor ($\alpha$) on every clock cycle pass, organically dissolving past semantic context trails as new information streams in.
-
-### 3.4 Hierarchical Winner-Take-All (WTA) Tree Selector
-
-Searching a global pool of 50,000 target tokens in a single pass would shatter L1/L2 cache boundaries. NeuronGuard-Gen implements a two-tier cascading search:
-
-1. **Tier-1 (Macro Sieve):** Spikes isolate the target context down to a highly constrained grammatical cluster (e.g., *Nouns related to Science*, *Core Verbs*, *Structural Punctuation*).
-2. **Tier-2 (Micro Target):** Activates a hyper-specific, 64-byte aligned memory block containing the final target token indices to pass back up through the FFI layer.
+* **FR-3.1:** Concurrent read/write modifications to individual `i16` synapses during active interactive chat modes must use atomic memory operations or thread-local row leases to enforce thread safety.
+* **FR-3.2:** Lock-free thread barriers must prevent deadlocks across background worker pipelines, keeping the execution layer completely decoupled from heavy mutex scheduling logic.
 
 ---
 
-## 4. Memory Layout & Low-Level Data Structures
+## 4. Performance & Operational Milestones
 
-The Rust memory engine enforces cache-line isolation. No pointers are allowed inside the main execution lines; all state connections are tracked as relative array offsets.
+| Metric Requirement | Boundary Target | Architectural Rationale |
+| --- | --- | --- |
+| **Synaptic Range Headroom** | **$-32,768 \text{ to } +32,767$** | Multiplies structural descriptive resolution by **16,384x** over ternary limits. |
+| **Synaptic Density** | **32 Synapses / Row** | Balances vocabulary intersection capacity with native hardware word boundaries. |
+| **Ingestion Throughput** | **> 200,000 tokens / sec** | Eliminating bit-masking logic should boost processing speed significantly. |
+| **Process RAM Envelope** | **< 90.00 MB (macOS RSS)** | Native memory footprints must remain flat and bounded regardless of dataset scale. |
+
+---
+
+## 5. Native Rust Reference Implementation
+
+This structural layout must be compiled into your native core layer to fulfill the 16-bit high-resolution registration specification:
 
 ```rust
-/// Enforce strict 64-byte alignment to match standard CPU cache lines.
-/// This maximizes L1/L2 data locality and prevents cache line thrashing.
-#[repr(align(64))]
-pub struct PermanentNeuromorphicLine {
-    /// 256 bits representing active excitatory synaptic pathways
-    pub synapses_positive: [u32; 8], 
+// neuronguard_core/src/matrix.rs
+
+/// High-Resolution Cache-Aligned Neuromorphic Line Subsystem.
+/// Enforces a strict 128-byte footprint to maximize CPU L1/L2 prefetch hit ratios.
+#[repr(align(128))]
+pub struct MaxRangeNeuromorphicLine {
+    /// 32 high-precision synapses tracking target token pathways with deep statistical headroom.
+    /// Consumes exactly 64 bytes (32 elements * 2 bytes each). Zero unpacking overhead.
+    pub synapses_weights: [i16; 32], 
     
-    /// 256 bits representing active inhibitory synaptic pathways
-    pub synapses_negative: [u32; 8], 
-    
-    /// Relative offset pointer for Central Pattern Generator backward routing
+    /// Relative offset pointer for Central Pattern Generator backward routing (4 Bytes)
     pub loopback_address: u32,
     
-    /// Remaining lingering energy amplitude inside the recurrent loop
+    /// Remaining lingering energy amplitude inside the recurrent loop (1 Byte)
     pub loopback_energy: u8,
     
-    /// Current integer accumulation potential
-    pub local_potential: i16,
+    /// Current accumulated potential headroom (4 Bytes)
+    pub local_potential: i32,
     
-    /// Dynamic activation threshold before a spike event is triggered
-    pub activation_threshold: i16,
+    /// Dynamic activation threshold before a spike event is triggered (4 Bytes)
+    pub activation_threshold: i32,
     
-    /// Strict padding to guarantee that instances align perfectly to hardware bounds
-    pub _padding: [u8; 18],
+    /// Explicit padding array ensuring the total struct size hits exactly 128 bytes on silicon.
+    /// 128 - (64 + 4 + 1 + 4 + 4) = 51 bytes of trailing block safety.
+    pub _padding: [u8; 51],
 }
 
-```
+impl MaxRangeNeuromorphicLine {
+    /// Instantiate a completely sterile, cache-aligned neural line
+    pub fn new(initial_threshold: i32) -> Self {
+        Self {
+            synapses_weights: [0; 32],
+            loopback_address: 0,
+            loopback_energy: 0,
+            local_potential: 0,
+            activation_threshold: initial_threshold,
+            _padding: [0; 51],
+        }
+    }
 
-### Concurrent Weight Mutation Safety:
+    /// Single-pass Hebbian potentiation step using fast hardware-level saturating addition
+    #[inline(always)]
+    pub fn potentiate_synapse(&mut self, index: usize, adjustment: i16) {
+        if index < 32 {
+            // saturating_add guarantees the value locks at +32767 instead of crashing via overflow
+            self.synapses_weights[index] = self.synapses_weights[index].saturating_add(adjustment);
+        }
+    }
 
-To manage concurrent updates safely across background threads without introducing locks, thread synchronization uses the atomic **Guard/Lease** transactional pattern. Weight changes are checked at the hardware instruction level using atomic Compare-And-Swap (`CAS`) loops on individual memory registers:
-
-```rust
-use std::sync::atomic::{AtomicI16, Ordering};
-
-pub struct AtomicPotentialState {
-    pub potential: AtomicI16,
-}
-
-impl AtomicPotentialState {
-    pub fn try_lease_and_accumulate(&self, increment: i16) {
-        let mut current = self.potential.load(Ordering::Relaxed);
-        loop {
-            let target = current.saturating_add(increment);
-            match self.potential.compare_exchange_weak(
-                current,
-                target,
-                Ordering::SeqCst,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => break,
-                Err(actual) => current = actual,
-            }
+    /// Single-pass Hebbian depression step using fast hardware-level saturating subtraction
+    #[inline(always)]
+    pub fn depress_synapse(&mut self, index: usize, adjustment: i16) {
+        if index < 32 {
+            // saturating_sub guarantees the value locks at -32768 instead of rolling over
+            self.synapses_weights[index] = self.synapses_weights[index].saturating_sub(adjustment);
         }
     }
 }
 
 ```
-
----
-
-## 5. Conversational State Execution & Sampling Loop
-
-To ensure multiple concurrent chat interactions can happen without corrupting the model's primary weights, the base weights remain read-only. Every chat session passes an isolated, stack-allocated context runner containing its own current accumulator potentials and memory states.
-
-```python
-# python/neuronguard/runner.py
-import numpy as np
-
-def run_autoregressive_generation(prompt_token_ids, max_generation_length=100, temperature=0.7):
-    # Initialize an isolated execution context inside the Rust layer
-    session_field = ng.NeuronGuardField(vocab_size=50000, motor_count=50000)
-    session_field.reset_potentials()
-    
-    # Process the seed prompt to establish initial CPG loopback energy
-    session_field.process_stream_sync(prompt_token_ids)
-    
-    generated_sequence = []
-    current_token_id = prompt_token_ids[-1]
-    
-    for _ in range(max_generation_length):
-        # Step a single clock cycle pass
-        session_field.process_stream_sync([current_token_id])
-        
-        # Pull raw integer potential balances directly via pointer view
-        raw_potentials = np.array(session_field.get_potentials(), dtype=np.float32)
-        
-        # Apply stochastic Temperature layer to introduce lexical variance
-        scaled_logits = raw_potentials / max(temperature, 1e-5)
-        probabilities = exp_softmax(scaled_logits)
-        
-        # Top-10 sampling pool filter to isolate coherent next-tokens
-        top_indices = np.argpartition(probabilities, -10)[-10:]
-        top_probs = probabilities[top_indices]
-        top_probs /= top_probs.sum()
-        
-        sampled_token_id = np.random.choice(top_indices, p=top_probs)
-        
-        if sampled_token_id == END_OF_SEQUENCE_MARKER:
-            break
-            
-        generated_sequence.append(sampled_token_id)
-        current_token_id = sampled_token_id # Seed back into sensory array
-        
-    return generated_sequence
-
-```
-
----
-
-## 6. Targeted Performance Milestones
-
-By optimizing data structures directly for standard instruction architectures, the 1.5-Billion parameter execution target operates inside an unprecedented resource envelope:
-
-* **Compute Type:** 100% MatMul-Free Sparse Integer Additions.
-* **Inference Pipeline Profile:** Fully linear $O(N)$ uniform clock cycle pass.
-* **Operational Latency:** Sub-millisecond Time-To-First-Token (TTFT) generation.
-* **Hardware Profile:** Fully functional inside standard x86_64 or Apple Silicon CPU caches (L2/L3) at a targeted structural power draw of **< 15 Watts**.

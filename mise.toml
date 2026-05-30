@@ -4,7 +4,7 @@ uv = "latest"
 python = "3.12"
 
 [vars]
-train_books = "500"
+train_books = "50"
 vocab_size = "50000"
 temperature = "0.7"
 book_urls = ""
@@ -40,5 +40,5 @@ run = "uv run --no-project python chat.py"
 env = { VOCAB_SIZE = "{{vars.vocab_size}}", TEMPERATURE = "{{vars.temperature}}" }
 
 [tasks.clean_models]
-description = "Clean up old pre-trained models and vocab files"
-run = "rm -f wikipedia_weights.txt wikipedia_vocab.txt test_weights.txt"
+description = "Clean up old pre-trained models, vocab files, and book caches"
+run = "rm -f wikipedia_weights.txt wikipedia_vocab.txt test_weights.txt && rm -rf books_cache"

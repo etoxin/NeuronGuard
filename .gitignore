@@ -30,3 +30,4 @@ example/fraud_scanner/data/
 *.txt
 .venv/
 .mise/
+books_cache/

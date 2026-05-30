@@ -53,73 +53,165 @@ def harvest_and_train_dynamic(start_id=1, max_books=50, vocab_size=50000):
     successful_books = 0
     current_id = start_id
 
+    # Setup local caching directory and broken books tracking
+    cache_dir = "books_cache"
+    os.makedirs(cache_dir, exist_ok=True)
+
+    broken_books_file = os.path.join(cache_dir, "broken_books.txt")
+    broken_books = set()
+    if os.path.exists(broken_books_file):
+        with open(broken_books_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.isdigit():
+                    broken_books.add(int(line))
+
+    def mark_broken(book_id):
+        if book_id not in broken_books:
+            broken_books.add(book_id)
+            with open(broken_books_file, "a") as f_broken:
+                f_broken.write(f"{book_id}\n")
+
     # Iterate continuously until the targeted volume of successful books is hit
     while successful_books < max_books:
-        # Construct standard Gutenberg text file URL patterns
-        primary_url = f"https://www.gutenberg.org/files/{current_id}/{current_id}-0.txt"
-        fallback_url = (
-            f"https://www.gutenberg.org/cache/epub/{current_id}/pg{current_id}.txt"
-        )
+        if current_id in broken_books:
+            current_id += 1
+            continue
 
-        url_to_try = primary_url
-        print(
-            f"[{successful_books + 1}/{max_books}] Probing Gutenberg ID {current_id}..."
-        )
+        local_path = os.path.join(cache_dir, f"{current_id}.txt")
+        temp_local_path = os.path.join(cache_dir, f"{current_id}.tmp")
 
-        try:
-            response = requests.get(url_to_try, stream=True, timeout=5)
+        in_story_body = False
+        book_tokens_count = 0
 
-            # If the primary URL structure 404s, immediately pivot to the cache mirror path
-            if response.status_code == 404:
-                url_to_try = fallback_url
+        if os.path.exists(local_path):
+            print(
+                f"[{successful_books + 1}/{max_books}] Loading Gutenberg ID {current_id} from local cache..."
+            )
+            try:
+                with open(
+                    local_path, "r", encoding="utf-8", errors="ignore"
+                ) as f_local:
+                    for line in f_local:
+                        clean_line = line.strip()
+                        if not clean_line:
+                            continue
+
+                        if "*** START OF" in clean_line.upper():
+                            in_story_body = True
+                            continue
+                        if "*** END OF" in clean_line.upper():
+                            in_story_body = False
+                            break
+
+                        if in_story_body and clean_line:
+                            proc_start = time.perf_counter()
+                            token_ids = tokenizer.encode(clean_line)
+                            if token_ids:
+                                trainer_field.train_stream_step_sync(token_ids)
+                                delta_t = time.perf_counter() - proc_start
+                                total_processing_time += delta_t
+
+                                num_tokens = len(token_ids)
+                                book_tokens_count += num_tokens
+                                total_tokens_processed += num_tokens
+
+                if book_tokens_count > 0:
+                    print(
+                        f"  -> Success! Ingested {book_tokens_count} tokens from ID {current_id} (Cached)"
+                    )
+                    successful_books += 1
+                else:
+                    print(
+                        f"  -> Skipped ID {current_id}: No story body text isolated in cache."
+                    )
+                    mark_broken(current_id)
+                    if os.path.exists(local_path):
+                        os.remove(local_path)
+            except Exception as e:
+                print(f"⚠️ Error reading cached book {current_id}: {e}")
+                mark_broken(current_id)
+                if os.path.exists(local_path):
+                    os.remove(local_path)
+        else:
+            # Construct standard Gutenberg text file URL patterns
+            primary_url = (
+                f"https://www.gutenberg.org/files/{current_id}/{current_id}-0.txt"
+            )
+            fallback_url = (
+                f"https://www.gutenberg.org/cache/epub/{current_id}/pg{current_id}.txt"
+            )
+
+            url_to_try = primary_url
+            print(
+                f"[{successful_books + 1}/{max_books}] Probing Gutenberg ID {current_id}..."
+            )
+
+            try:
                 response = requests.get(url_to_try, stream=True, timeout=5)
 
-            response.raise_for_status()
+                # If the primary URL structure 404s, immediately pivot to the cache mirror path
+                if response.status_code == 404:
+                    url_to_try = fallback_url
+                    response = requests.get(url_to_try, stream=True, timeout=5)
 
-            in_story_body = False
-            book_tokens_count = 0
+                response.raise_for_status()
 
-            for raw_line in response.iter_lines(decode_unicode=True):
-                if not raw_line:
-                    continue
+                # Open temp file to write lines as we stream them
+                with open(
+                    temp_local_path, "w", encoding="utf-8", errors="ignore"
+                ) as out_f:
+                    for raw_line in response.iter_lines(decode_unicode=True):
+                        if not raw_line:
+                            continue
 
-                clean_line = raw_line.strip()
+                        # Write to temp cache file
+                        out_f.write(raw_line + "\n")
 
-                if "*** START OF" in clean_line.upper():
-                    in_story_body = True
-                    continue
-                if "*** END OF" in clean_line.upper():
-                    in_story_body = False
-                    break
+                        clean_line = raw_line.strip()
 
-                if in_story_body and clean_line:
-                    proc_start = time.perf_counter()
-                    token_ids = tokenizer.encode(clean_line)
-                    if token_ids:
-                        trainer_field.train_stream_step_sync(token_ids)
-                        delta_t = time.perf_counter() - proc_start
-                        total_processing_time += delta_t
+                        if "*** START OF" in clean_line.upper():
+                            in_story_body = True
+                            continue
+                        if "*** END OF" in clean_line.upper():
+                            in_story_body = False
+                            break
 
-                        num_tokens = len(token_ids)
-                        book_tokens_count += num_tokens
-                        total_tokens_processed += num_tokens
+                        if in_story_body and clean_line:
+                            proc_start = time.perf_counter()
+                            token_ids = tokenizer.encode(clean_line)
+                            if token_ids:
+                                trainer_field.train_stream_step_sync(token_ids)
+                                delta_t = time.perf_counter() - proc_start
+                                total_processing_time += delta_t
 
-            # Only count as a successful book if it contained a story body with valid tokens
-            if book_tokens_count > 0:
-                print(
-                    f"  -> Success! Ingested {book_tokens_count} tokens from ID {current_id}"
-                )
-                successful_books += 1
-            else:
-                print(f"  -> Skipped ID {current_id}: No story body text isolated.")
+                                num_tokens = len(token_ids)
+                                book_tokens_count += num_tokens
+                                total_tokens_processed += num_tokens
 
-            response.close()
-            del response
-            gc.collect()
+                # Only count as a successful book if it contained a story body with valid tokens
+                if book_tokens_count > 0:
+                    print(
+                        f"  -> Success! Ingested {book_tokens_count} tokens from ID {current_id}"
+                    )
+                    successful_books += 1
+                    # Save temp file to final cache path
+                    os.rename(temp_local_path, local_path)
+                else:
+                    print(f"  -> Skipped ID {current_id}: No story body text isolated.")
+                    mark_broken(current_id)
+                    if os.path.exists(temp_local_path):
+                        os.remove(temp_local_path)
 
-        except Exception:
-            # Silent fallback path skip for missing catalog items or network timeouts
-            pass
+                response.close()
+                del response
+                gc.collect()
+
+            except Exception:
+                # Silent fallback path skip for missing catalog items or network timeouts
+                mark_broken(current_id)
+                if os.path.exists(temp_local_path):
+                    os.remove(temp_local_path)
 
         current_id += 1
 
