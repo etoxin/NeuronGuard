@@ -201,3 +201,22 @@ To maintain strict cache-line alignment and optimize memory footprint, we have t
 ### Task 9.2: Implement Streaming Dataset Pipeline
 - **File:** `python/neuronguard/train_pipeline.py` (New File)
 - **Description:** Stream the `wikimedia/structured-wikipedia` dataset directly from the network or local raw stream, dropping the Python GIL via PyO3 to allow parallel worker threads to parse text blocks concurrently.
+
+---
+
+## Phase 10: Line-Rate Stream-Training Infrastructure (Python & Rust)
+
+### Task 10.1: Implement Automated Book Harvester & Streaming Buffer
+- **File:** `train_stream_harvester.py` (New File)
+- **Description:** Implement the automated, memory-bounded book harvester that streams literature directly from Project Gutenberg mirrors.
+- **Details:**
+  - Accept an array of source URLs and initiate non-blocking HTTP streaming requests via `requests(stream=True)`.
+  - Read network packets into a small, fixed ring buffer memory slice (strictly forbidden to call `.read()`, `.text`, or `.json()` on the entire book payload).
+  - Identify and strip standard Project Gutenberg legal headers and footers (e.g., metadata lines containing `"*** START OF"` and `"*** END OF"`) on the fly.
+
+### Task 10.2: Implement Non-Blocking Tokenization & Training Loop
+- **File:** `train_stream_harvester.py`
+- **Description:** Parse streaming text chunks into 16-bit subword token IDs and pipe them instantly into the lock-free Rust Hebbian registers.
+- **Details:**
+  - Drop the Python Global Interpreter Lock (GIL) via PyO3 context wrappers to hand the token buffer arrays directly over to the underlying Rust training loop.
+  - Verify performance milestones: local disk footprint of 0.00 bytes, zero heap allocations in the inference path, process RSS memory < 65.00 MB, and throughput > 120,000 tokens/sec.

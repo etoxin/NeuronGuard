@@ -22,6 +22,7 @@ pub struct NeuronGuardTrainerField {
     pub motor_count: usize,
     pub lines: Vec<PermanentNeuromorphicLine>,
     pub potentials: Vec<AtomicI16>,
+    pub macro_potentials: Vec<AtomicI16>, // Added for fast hierarchical WTA search
 }
 
 impl NeuronGuardTrainerField {
@@ -45,11 +46,19 @@ impl NeuronGuardTrainerField {
             potentials.push(AtomicI16::new(0));
         }
 
+        // 50 macro clusters of size 1000
+        let num_macro = (motor_count + 999) / 1000;
+        let mut macro_potentials = Vec::with_capacity(num_macro);
+        for _ in 0..num_macro {
+            macro_potentials.push(AtomicI16::new(0));
+        }
+
         Self {
             sensory_count,
             motor_count,
             lines,
             potentials,
+            macro_potentials,
         }
     }
 
@@ -57,6 +66,9 @@ impl NeuronGuardTrainerField {
     pub fn reset_potentials(&self) {
         for pot in &self.potentials {
             pot.store(0, Ordering::Relaxed);
+        }
+        for m_pot in &self.macro_potentials {
+            m_pot.store(0, Ordering::Relaxed);
         }
     }
 
@@ -81,21 +93,42 @@ impl NeuronGuardTrainerField {
                 let word_idx = j >> 5;
                 let bit_idx = j & 31;
                 let target_token_id = (xt + j) % self.motor_count;
+                let macro_idx = target_token_id / 1000;
 
                 // Check positive synapses
                 if (line.synapses_positive[word_idx] & (1 << bit_idx)) != 0 {
                     self.potentials[target_token_id].fetch_add(1, Ordering::Relaxed);
+                    if macro_idx < self.macro_potentials.len() {
+                        self.macro_potentials[macro_idx].fetch_add(1, Ordering::Relaxed);
+                    }
                 }
                 // Check negative synapses
                 if (line.synapses_negative[word_idx] & (1 << bit_idx)) != 0 {
                     self.potentials[target_token_id].fetch_sub(1, Ordering::Relaxed);
+                    if macro_idx < self.macro_potentials.len() {
+                        self.macro_potentials[macro_idx].fetch_sub(1, Ordering::Relaxed);
+                    }
                 }
             }
 
-            // 2. Local Error Evaluation
+            // 2. Local Error Evaluation (Hierarchical WTA Search: O(1) cache-resident)
+            // Tier-1: Find winning macro cluster (50 elements)
+            let mut winning_cluster = 0;
+            let mut max_macro_pot = i16::MIN;
+            for i in 0..self.macro_potentials.len() {
+                let pot = self.macro_potentials[i].load(Ordering::Relaxed);
+                if pot > max_macro_pot {
+                    max_macro_pot = pot;
+                    winning_cluster = i;
+                }
+            }
+
+            // Tier-2: Find winning token within the winning cluster (1,000 elements)
+            let start_idx = winning_cluster * 1000;
+            let end_idx = (start_idx + 1000).min(self.motor_count);
             let mut prediction = 0;
             let mut max_potential = i16::MIN;
-            for i in 0..self.motor_count {
+            for i in start_idx..end_idx {
                 let pot = self.potentials[i].load(Ordering::Relaxed);
                 if pot > max_potential {
                     max_potential = pot;
@@ -124,12 +157,21 @@ impl NeuronGuardTrainerField {
                 }
             }
 
-            // 4. Decay Step (alpha = 0.90)
-            for pot in &self.potentials {
-                let current = pot.load(Ordering::Relaxed);
-                if current != 0 {
-                    let decayed = (current as f32 * 0.90) as i16;
-                    pot.store(decayed, Ordering::Relaxed);
+            // 4. Decay Step (applied once every 100 steps to keep the hot path O(1))
+            if t % 100 == 0 {
+                for pot in &self.potentials {
+                    let current = pot.load(Ordering::Relaxed);
+                    if current != 0 {
+                        let decayed = (current as f32 * 0.90) as i16;
+                        pot.store(decayed, Ordering::Relaxed);
+                    }
+                }
+                for m_pot in &self.macro_potentials {
+                    let current = m_pot.load(Ordering::Relaxed);
+                    if current != 0 {
+                        let decayed = (current as f32 * 0.90) as i16;
+                        m_pot.store(decayed, Ordering::Relaxed);
+                    }
                 }
             }
         }

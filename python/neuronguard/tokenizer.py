@@ -31,13 +31,13 @@ class NeuronGuardTokenizer:
         self.inverse_vocab = {}
 
         # Load OpenAI's gpt2 encoder
-        enc = tiktoken.get_encoding("gpt2")
+        self.enc = tiktoken.get_encoding("gpt2")
 
         # Extract the first vocab_size tokens
         for i in range(vocab_size):
             try:
                 # Decode the token bytes to string
-                token_bytes = enc.decode_single_token_bytes(i)
+                token_bytes = self.enc.decode_single_token_bytes(i)
                 token_str = token_bytes.decode("utf-8", errors="ignore")
 
                 # Clean up control characters or replace them
@@ -55,26 +55,9 @@ class NeuronGuardTokenizer:
 
     def encode(self, text):
         """
-        Encodes a string into a list of Token IDs using greedy subword matching.
+        Encodes a string into a list of Token IDs using tiktoken's native Rust-based encoder.
         """
-        tokens = []
-        i = 0
-        while i < len(text):
-            match = None
-            # Try to find the longest matching subword in vocabulary
-            for length in range(min(15, len(text) - i), 0, -1):
-                subword = text[i : i + length]
-                if subword in self.vocab:
-                    match = subword
-                    break
-            if match:
-                tokens.append(self.vocab[match])
-                i += len(match)
-            else:
-                # Fallback to byte value
-                tokens.append(ord(text[i]) % 256)
-                i += 1
-        return tokens
+        return [tid for tid in self.enc.encode(text) if tid < self.vocab_size]
 
     def decode(self, token_ids):
         """
