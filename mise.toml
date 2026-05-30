@@ -4,7 +4,7 @@ uv = "latest"
 python = "3.12"
 
 [vars]
-train_epochs = "1"
+train_books = "25"
 vocab_size = "50000"
 temperature = "0.7"
 book_urls = ""
@@ -32,7 +32,7 @@ run = "uv run --no-project python verify.py"
 [tasks.train-gen]
 description = "Run the generative SNN-LM training pipeline on Project Gutenberg books"
 run = "uv run --no-project python train_stream_harvester.py"
-env = { TRAIN_EPOCHS = "{{vars.train_epochs}}", VOCAB_SIZE = "{{vars.vocab_size}}", BOOK_URLS = "{{vars.book_urls}}" }
+env = { TRAIN_BOOKS = "{{vars.train_books}}", VOCAB_SIZE = "{{vars.vocab_size}}", BOOK_URLS = "{{vars.book_urls}}" }
 
 [tasks.chat]
 description = "Start the interactive chat session with the SNN-LM"

@@ -31,13 +31,37 @@ BOOK_CATALOG = [
     "https://www.gutenberg.org/files/5200/5200-0.txt",  # Metamorphosis
     "https://www.gutenberg.org/files/120/120-0.txt",  # Treasure Island
     "https://www.gutenberg.org/files/2600/2600-0.txt",  # War and Peace
+    "https://www.gutenberg.org/cache/epub/64317/pg64317.txt",  # The Great Gatsby
+    "https://www.gutenberg.org/files/98/98-0.txt",  # A Tale of Two Cities
+    "https://www.gutenberg.org/files/174/174-0.txt",  # The Picture of Dorian Gray
+    "https://www.gutenberg.org/files/1184/1184-0.txt",  # The Count of Monte Cristo
+    "https://www.gutenberg.org/files/4300/4300-0.txt",  # Ulysses
+    "https://www.gutenberg.org/files/2591/2591-0.txt",  # Grimms' Fairy Tales
+    "https://www.gutenberg.org/files/1727/1727-0.txt",  # The Odyssey
+    "https://www.gutenberg.org/files/6130/6130-0.txt",  # The Iliad
+    "https://www.gutenberg.org/files/33/33-0.txt",  # The Scarlet Letter
+    "https://www.gutenberg.org/files/35/35-0.txt",  # The Time Machine
+    "https://www.gutenberg.org/files/36/36-0.txt",  # The War of the Worlds
+    "https://www.gutenberg.org/files/5230/5230-0.txt",  # The Invisible Man
+    "https://www.gutenberg.org/files/215/215-0.txt",  # The Call of the Wild
+    "https://www.gutenberg.org/files/910/910-0.txt",  # White Fang
+    "https://www.gutenberg.org/files/219/219-0.txt",  # Heart of Darkness
+    "https://www.gutenberg.org/files/236/236-0.txt",  # The Jungle Book
+    "https://www.gutenberg.org/files/16/16-0.txt",  # Peter Pan
+    "https://www.gutenberg.org/files/289/289-0.txt",  # The Wind in the Willows
+    "https://www.gutenberg.org/files/113/113-0.txt",  # The Secret Garden
+    "https://www.gutenberg.org/files/41/41-0.txt",  # The Legend of Sleepy Hollow
 ]
 
 
-def harvest_and_train(urls, vocab_size=50000, epochs=1):
+def harvest_and_train(urls, vocab_size=50000, max_books=None):
     print("======================================================================")
     print("🧠 NeuronGuard-Gen Line-Rate Stream-Training Infrastructure")
     print("======================================================================")
+
+    if max_books is not None and max_books > 0:
+        urls = urls[:max_books]
+        print(f"Limiting training to the first {len(urls)} books.")
 
     print("Initializing vocabulary...")
     tokenizer = NeuronGuardTokenizer(vocab_size=vocab_size)
@@ -60,54 +84,48 @@ def harvest_and_train(urls, vocab_size=50000, epochs=1):
     start_time = time.perf_counter()
     total_processing_time = 0.0
 
-    for epoch in range(epochs):
-        if epochs > 1:
-            print(f"\n🔄 --- Epoch {epoch + 1}/{epochs} ---")
+    for book_idx, url in enumerate(urls):
+        print(f"[{book_idx + 1}/{len(urls)}] Connecting to stream: {url}")
 
-        for book_idx, url in enumerate(urls):
-            print(f"[{book_idx + 1}/{len(urls)}] Connecting to stream: {url}")
+        try:
+            # stream=True ensures chunked line-by-line networking into a small, fixed buffer
+            response = requests.get(url, stream=True, timeout=15)
+            response.raise_for_status()
 
-            try:
-                # stream=True ensures chunked line-by-line networking into a small, fixed buffer
-                response = requests.get(url, stream=True, timeout=15)
-                response.raise_for_status()
+            in_story_body = False
+            book_tokens_count = 0
 
-                in_story_body = False
-                book_tokens_count = 0
+            for raw_line in response.iter_lines(decode_unicode=True):
+                if not raw_line:
+                    continue
 
-                for raw_line in response.iter_lines(decode_unicode=True):
-                    if not raw_line:
-                        continue
+                clean_line = raw_line.strip()
 
-                    clean_line = raw_line.strip()
+                # Filter out standard license headers to isolate pristine syntax patterns
+                if "*** START OF" in clean_line.upper():
+                    in_story_body = True
+                    continue
+                if "*** END OF" in clean_line.upper():
+                    in_story_body = False
+                    break
 
-                    # Filter out standard license headers to isolate pristine syntax patterns
-                    if "*** START OF" in clean_line.upper():
-                        in_story_body = True
-                        continue
-                    if "*** END OF" in clean_line.upper():
-                        in_story_body = False
-                        break
+                if in_story_body and clean_line:
+                    # Measure only the active processing time (tokenization + training)
+                    proc_start = time.perf_counter()
+                    token_ids = tokenizer.encode(clean_line)
+                    if token_ids:
+                        trainer_field.train_stream_step_sync(token_ids)
+                    total_processing_time += time.perf_counter() - proc_start
 
-                    if in_story_body and clean_line:
-                        # Measure only the active processing time (tokenization + training)
-                        proc_start = time.perf_counter()
-                        token_ids = tokenizer.encode(clean_line)
-                        if token_ids:
-                            trainer_field.train_stream_step_sync(token_ids)
-                        total_processing_time += time.perf_counter() - proc_start
+                    if token_ids:
+                        book_tokens_count += len(token_ids)
+                        total_tokens_processed += len(token_ids)
 
-                        if token_ids:
-                            book_tokens_count += len(token_ids)
-                            total_tokens_processed += len(token_ids)
+            print(f"  -> Ingested {book_tokens_count} tokens from {url.split('/')[-1]}")
 
-                print(
-                    f"  -> Ingested {book_tokens_count} tokens from {url.split('/')[-1]}"
-                )
-
-            except Exception as e:
-                print(f"⚠️ Skipping corrupt or timed-out endpoint {url}: {e}")
-                continue
+        except Exception as e:
+            print(f"⚠️ Skipping corrupt or timed-out endpoint {url}: {e}")
+            continue
 
     total_duration = time.perf_counter() - start_time
     throughput = (
@@ -151,7 +169,20 @@ if __name__ == "__main__":
     import os
 
     vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
-    epochs = int(os.environ.get("TRAIN_EPOCHS", 1))
+
+    # Read maximum number of books to train on
+    max_books_str = os.environ.get("TRAIN_BOOKS", "").strip()
+
+    # Also check command-line arguments (e.g., if mise appended them via --vars)
+    import sys
+
+    for arg in sys.argv:
+        if "train_books=" in arg:
+            max_books_str = arg.split("train_books=")[-1].strip()
+
+    max_books = (
+        int(max_books_str) if max_books_str and max_books_str.isdigit() else None
+    )
 
     # Check if custom book URLs are provided in the environment
     custom_urls = os.environ.get("BOOK_URLS", "").strip()
@@ -162,4 +193,4 @@ if __name__ == "__main__":
         urls = BOOK_CATALOG
         print(f"Using {len(urls)} default classic books from catalog.")
 
-    harvest_and_train(urls, vocab_size=vocab_size, epochs=epochs)
+    harvest_and_train(urls, vocab_size=vocab_size, max_books=max_books)
