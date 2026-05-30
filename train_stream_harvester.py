@@ -24,13 +24,31 @@ BOOK_CATALOG = [
     "https://www.gutenberg.org/files/84/84-0.txt",  # Frankenstein
     "https://www.gutenberg.org/files/1661/1661-0.txt",  # Sherlock Holmes
     "https://www.gutenberg.org/files/1342/1342-0.txt",  # Pride and Prejudice
+    "https://www.gutenberg.org/files/345/345-0.txt",  # Dracula
+    "https://www.gutenberg.org/files/11/11-0.txt",  # Alice in Wonderland
+    "https://www.gutenberg.org/files/2701/2701-0.txt",  # Moby Dick
+    "https://www.gutenberg.org/files/74/74-0.txt",  # The Adventures of Tom Sawyer
+    "https://www.gutenberg.org/files/5200/5200-0.txt",  # Metamorphosis
+    "https://www.gutenberg.org/files/120/120-0.txt",  # Treasure Island
+    "https://www.gutenberg.org/files/2600/2600-0.txt",  # War and Peace
 ]
 
 
-def harvest_and_train(urls, vocab_size=50000):
+def harvest_and_train(urls, vocab_size=50000, epochs=1):
     print("======================================================================")
     print("🧠 NeuronGuard-Gen Line-Rate Stream-Training Infrastructure")
     print("======================================================================")
+
+    print("Initializing vocabulary...")
+    tokenizer = NeuronGuardTokenizer(vocab_size=vocab_size)
+
+    # Save vocabulary file
+    vocab_file = "wikipedia_vocab.txt"
+    import json
+
+    with open(vocab_file, "w") as f:
+        json.dump(tokenizer.vocab, f)
+    print(f"Successfully generated {vocab_file}.")
 
     print("Allocating 128-byte cache-aligned training matrix...")
     trainer_field = ng.NeuronGuardTrainerField(
@@ -38,54 +56,58 @@ def harvest_and_train(urls, vocab_size=50000):
     )
     trainer_field.reset_potentials()
 
-    tokenizer = NeuronGuardTokenizer(vocab_size=vocab_size)
-
     total_tokens_processed = 0
     start_time = time.perf_counter()
     total_processing_time = 0.0
 
-    for book_idx, url in enumerate(urls):
-        print(f"[{book_idx + 1}/{len(urls)}] Connecting to stream: {url}")
+    for epoch in range(epochs):
+        if epochs > 1:
+            print(f"\n🔄 --- Epoch {epoch + 1}/{epochs} ---")
 
-        try:
-            # stream=True ensures chunked line-by-line networking into a small, fixed buffer
-            response = requests.get(url, stream=True, timeout=15)
-            response.raise_for_status()
+        for book_idx, url in enumerate(urls):
+            print(f"[{book_idx + 1}/{len(urls)}] Connecting to stream: {url}")
 
-            in_story_body = False
-            book_tokens_count = 0
+            try:
+                # stream=True ensures chunked line-by-line networking into a small, fixed buffer
+                response = requests.get(url, stream=True, timeout=15)
+                response.raise_for_status()
 
-            for raw_line in response.iter_lines(decode_unicode=True):
-                if not raw_line:
-                    continue
+                in_story_body = False
+                book_tokens_count = 0
 
-                clean_line = raw_line.strip()
+                for raw_line in response.iter_lines(decode_unicode=True):
+                    if not raw_line:
+                        continue
 
-                # Filter out standard license headers to isolate pristine syntax patterns
-                if "*** START OF" in clean_line.upper():
-                    in_story_body = True
-                    continue
-                if "*** END OF" in clean_line.upper():
-                    in_story_body = False
-                    break
+                    clean_line = raw_line.strip()
 
-                if in_story_body and clean_line:
-                    # Measure only the active processing time (tokenization + training)
-                    proc_start = time.perf_counter()
-                    token_ids = tokenizer.encode(clean_line)
-                    if token_ids:
-                        trainer_field.train_stream_step_sync(token_ids)
-                    total_processing_time += time.perf_counter() - proc_start
+                    # Filter out standard license headers to isolate pristine syntax patterns
+                    if "*** START OF" in clean_line.upper():
+                        in_story_body = True
+                        continue
+                    if "*** END OF" in clean_line.upper():
+                        in_story_body = False
+                        break
 
-                    if token_ids:
-                        book_tokens_count += len(token_ids)
-                        total_tokens_processed += len(token_ids)
+                    if in_story_body and clean_line:
+                        # Measure only the active processing time (tokenization + training)
+                        proc_start = time.perf_counter()
+                        token_ids = tokenizer.encode(clean_line)
+                        if token_ids:
+                            trainer_field.train_stream_step_sync(token_ids)
+                        total_processing_time += time.perf_counter() - proc_start
 
-            print(f"  -> Ingested {book_tokens_count} tokens from {url.split('/')[-1]}")
+                        if token_ids:
+                            book_tokens_count += len(token_ids)
+                            total_tokens_processed += len(token_ids)
 
-        except Exception as e:
-            print(f"⚠️ Skipping corrupt or timed-out endpoint {url}: {e}")
-            continue
+                print(
+                    f"  -> Ingested {book_tokens_count} tokens from {url.split('/')[-1]}"
+                )
+
+            except Exception as e:
+                print(f"⚠️ Skipping corrupt or timed-out endpoint {url}: {e}")
+                continue
 
     total_duration = time.perf_counter() - start_time
     throughput = (
@@ -129,4 +151,15 @@ if __name__ == "__main__":
     import os
 
     vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
-    harvest_and_train(BOOK_CATALOG, vocab_size=vocab_size)
+    epochs = int(os.environ.get("TRAIN_EPOCHS", 1))
+
+    # Check if custom book URLs are provided in the environment
+    custom_urls = os.environ.get("BOOK_URLS", "").strip()
+    if custom_urls:
+        urls = [url.strip() for url in custom_urls.split(",") if url.strip()]
+        print(f"Using {len(urls)} custom book URLs from environment.")
+    else:
+        urls = BOOK_CATALOG
+        print(f"Using {len(urls)} default classic books from catalog.")
+
+    harvest_and_train(urls, vocab_size=vocab_size, epochs=epochs)

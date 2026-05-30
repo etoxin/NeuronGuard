@@ -4,9 +4,10 @@ uv = "latest"
 python = "3.12"
 
 [vars]
-train_seconds = "25"
+train_epochs = "1"
 vocab_size = "50000"
 temperature = "0.7"
+book_urls = ""
 
 [tasks.build]
 description = "Build the Rust library and binaries"
@@ -29,14 +30,9 @@ description = "Run the Python verification script"
 run = "uv run --no-project python verify.py"
 
 [tasks.train-gen]
-description = "Run the generative SNN-LM training pipeline"
-run = "uv run --no-project python train_generative_poc.py"
-env = { TRAIN_SECONDS = "{{vars.train_seconds}}", VOCAB_SIZE = "{{vars.vocab_size}}" }
-
-[tasks.train-stream]
-description = "Run the line-rate stream-training book harvester pipeline"
+description = "Run the generative SNN-LM training pipeline on Project Gutenberg books"
 run = "uv run --no-project python train_stream_harvester.py"
-env = { VOCAB_SIZE = "{{vars.vocab_size}}" }
+env = { TRAIN_EPOCHS = "{{vars.train_epochs}}", VOCAB_SIZE = "{{vars.vocab_size}}", BOOK_URLS = "{{vars.book_urls}}" }
 
 [tasks.chat]
 description = "Start the interactive chat session with the SNN-LM"
