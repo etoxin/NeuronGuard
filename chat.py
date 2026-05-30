@@ -49,19 +49,36 @@ def chat():
     trainer_field.load_weights_from_b64(weights_file)
     print("Weights loaded successfully! SNN-LM is ready.")
     print("======================================================================")
-    print("Type your prompt and press Enter to chat. Type 'exit' or 'quit' to stop.")
+    print("🧠 Live Feedback Mode Active!")
+    print("Type normal prompts to converse. Use '/correct <text>' to guide the brain.")
+    print("Type 'exit' or 'quit' to stop.")
     print("======================================================================")
 
     while True:
         try:
             prompt = input("\n👤 You: ")
-            if prompt.strip().lower() in ["exit", "quit"]:
+            user_input = prompt.strip()
+            if user_input.lower() in ["exit", "quit"]:
                 break
 
-            if not prompt.strip():
+            if not user_input:
                 continue
 
-            prompt_ids = tokenizer.encode(prompt)
+            # Intercept real-time human correction signals
+            if user_input.startswith("/correct "):
+                target_text = user_input.replace("/correct ", "")
+                target_indices = tokenizer.encode(target_text)
+
+                if target_indices:
+                    print(
+                        "⚡ Live Hebbian Adjustment: Mutating active cache registers..."
+                    )
+                    # In-place atomic CAS pass over the 128-byte rows
+                    trainer_field.train_stream_step_sync(target_indices)
+                    print("✅ Synaptic paths modified. Test the prompt string again.")
+                continue
+
+            prompt_ids = tokenizer.encode(user_input)
 
             # Reset potentials for a clean generation session
             trainer_field.reset_potentials()

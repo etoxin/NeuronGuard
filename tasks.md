@@ -220,3 +220,15 @@ To maintain strict cache-line alignment and optimize memory footprint, we have t
 - **Details:**
   - Drop the Python Global Interpreter Lock (GIL) via PyO3 context wrappers to hand the token buffer arrays directly over to the underlying Rust training loop.
   - Verify performance milestones: local disk footprint of 0.00 bytes, zero heap allocations in the inference path, process RSS memory < 65.00 MB, and throughput > 120,000 tokens/sec.
+
+---
+
+## Phase 11: Real-Time Interactive Feedback & Continuous Online Learning (Python & Rust)
+
+### Task 11.1: Implement Live Feedback & Hebbian Correction Loop
+- **File:** `chat.py`
+- **Description:** Implement the interactive live feedback loop that intercepts `/correct <text>` commands and executes in-place, lock-free Hebbian mutations.
+- **Details:**
+  - Intercept `/correct <text>` commands in the terminal chat loop.
+  - Tokenize the correction text and execute a single-pass Hebbian mutation tick over the pre-allocated neuromorphic memory matrix in under 2.00 milliseconds.
+  - Verify performance milestones: zero added overhead during conversation, correction cycle time < 2.00 ms, 0.00 MB incremental memory expansion, and fully lock-free execution (0.00 seconds thread locking timeout).
