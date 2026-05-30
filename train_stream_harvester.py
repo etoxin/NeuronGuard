@@ -241,6 +241,7 @@ def harvest_and_train_dynamic(start_id=1, max_books=50, vocab_size=50000):
     print("\n======================================================================")
     print("✅ Performance Milestones Verification:")
     print("======================================================================")
+    print(f"  - Total Tokens Ingested: {total_tokens_processed:,} tokens")
     print(f"  - Local Disk Footprint: 0.00 Bytes (100% Streamed from NIC to RAM)")
     print(f"  - Inference Path Allocations: Zero Allocation (100% Verified)")
     print(

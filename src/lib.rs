@@ -30,7 +30,7 @@ use crate::attention::SpikingAttentionState;
 #[cfg(feature = "extension-module")]
 use crate::ensemble_mesh::{InsectoidSimulation, PermanentSpatiotemporalEnsembleMesh};
 #[cfg(feature = "extension-module")]
-use crate::gen_memory::PermanentNeuromorphicLine;
+use crate::gen_memory::MaxRangeNeuromorphicLine;
 #[cfg(feature = "extension-module")]
 use crate::neuron_guard::{ParallelRouter, ThreadBoundedNeuronField};
 #[cfg(feature = "extension-module")]
@@ -438,7 +438,7 @@ impl PyInsectoidSimulation {
 #[pyclass]
 #[derive(Clone)]
 pub struct PyPermanentNeuromorphicLine {
-    pub line: PermanentNeuromorphicLine,
+    pub line: MaxRangeNeuromorphicLine,
 }
 
 #[cfg(feature = "extension-module")]
@@ -447,39 +447,19 @@ impl PyPermanentNeuromorphicLine {
     #[new]
     fn new() -> Self {
         Self {
-            line: PermanentNeuromorphicLine {
-                synapses_positive: [0; 8],
-                synapses_negative: [0; 8],
-                loopback_address: 0,
-                loopback_energy: 0,
-                local_potential: 0,
-                activation_threshold: 0,
-                _padding: [0; 54],
-            },
+            line: MaxRangeNeuromorphicLine::new(15),
         }
     }
 
     #[getter]
-    fn synapses_positive(&self) -> Vec<u32> {
-        self.line.synapses_positive.to_vec()
+    fn synapses_weights(&self) -> Vec<i16> {
+        self.line.synapses_weights.to_vec()
     }
 
     #[setter]
-    fn set_synapses_positive(&mut self, val: Vec<u32>) {
-        for i in 0..8.min(val.len()) {
-            self.line.synapses_positive[i] = val[i];
-        }
-    }
-
-    #[getter]
-    fn synapses_negative(&self) -> Vec<u32> {
-        self.line.synapses_negative.to_vec()
-    }
-
-    #[setter]
-    fn set_synapses_negative(&mut self, val: Vec<u32>) {
-        for i in 0..8.min(val.len()) {
-            self.line.synapses_negative[i] = val[i];
+    fn set_synapses_weights(&mut self, val: Vec<i16>) {
+        for i in 0..32.min(val.len()) {
+            self.line.synapses_weights[i] = val[i];
         }
     }
 
@@ -504,22 +484,22 @@ impl PyPermanentNeuromorphicLine {
     }
 
     #[getter]
-    fn local_potential(&self) -> i16 {
+    fn local_potential(&self) -> i32 {
         self.line.local_potential
     }
 
     #[setter]
-    fn set_local_potential(&mut self, val: i16) {
+    fn set_local_potential(&mut self, val: i32) {
         self.line.local_potential = val;
     }
 
     #[getter]
-    fn activation_threshold(&self) -> i16 {
+    fn activation_threshold(&self) -> i32 {
         self.line.activation_threshold
     }
 
     #[setter]
-    fn set_activation_threshold(&mut self, val: i16) {
+    fn set_activation_threshold(&mut self, val: i32) {
         self.line.activation_threshold = val;
     }
 }
@@ -652,7 +632,7 @@ impl PyNeuronGuardTrainerField {
         self.trainer.decay_potentials(alpha);
     }
 
-    fn get_potentials(&self) -> Vec<i16> {
+    fn get_potentials(&self) -> Vec<i32> {
         self.trainer.get_potentials()
     }
 }
@@ -669,7 +649,7 @@ impl PyCPGManager {
         line: &PyPermanentNeuromorphicLine,
         mut pool: Vec<PyPermanentNeuromorphicLine>,
     ) -> Vec<PyPermanentNeuromorphicLine> {
-        let mut raw_pool: Vec<PermanentNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
+        let mut raw_pool: Vec<MaxRangeNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
         crate::cpg::propagate_cpg_echo(&line.line, &mut raw_pool);
         for (p, r) in pool.iter_mut().zip(raw_pool.iter()) {
             p.line = *r;
@@ -682,7 +662,7 @@ impl PyCPGManager {
         mut pool: Vec<PyPermanentNeuromorphicLine>,
         alpha: f32,
     ) -> Vec<PyPermanentNeuromorphicLine> {
-        let mut raw_pool: Vec<PermanentNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
+        let mut raw_pool: Vec<MaxRangeNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
         crate::cpg::decay_potentials(&mut raw_pool, alpha);
         for (p, r) in pool.iter_mut().zip(raw_pool.iter()) {
             p.line = *r;
@@ -691,7 +671,7 @@ impl PyCPGManager {
     }
 
     #[staticmethod]
-    fn decay_accumulators(mut accumulators: [i16; 256], alpha: f32) -> [i16; 256] {
+    fn decay_accumulators(mut accumulators: [i32; 256], alpha: f32) -> [i32; 256] {
         crate::cpg::decay_accumulators(&mut accumulators, alpha);
         accumulators
     }

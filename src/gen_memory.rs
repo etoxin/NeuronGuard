@@ -12,51 +12,79 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::atomic::{AtomicI16, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 
-/// Enforce strict 64-byte alignment to match standard CPU cache lines.
-/// This maximizes L1/L2 data locality and prevents cache line thrashing.
-/// This version is aligned to 64 bytes and padded to exactly 128 bytes (two cache lines)
-/// to accommodate 256-bit positive and negative synaptic pathways.
-#[repr(C, align(64))]
+/// High-Resolution Cache-Aligned Neuromorphic Line Subsystem.
+/// Enforces a strict 128-byte footprint to maximize CPU L1/L2 prefetch hit ratios.
+#[repr(C, align(128))]
 #[derive(Debug, Clone, Copy)]
-pub struct PermanentNeuromorphicLine {
-    /// 256 bits representing active excitatory synaptic pathways
-    pub synapses_positive: [u32; 8],
+pub struct MaxRangeNeuromorphicLine {
+    /// 32 high-precision synapses tracking target token pathways with deep statistical headroom.
+    /// Consumes exactly 64 bytes (32 elements * 2 bytes each). Zero unpacking overhead.
+    pub synapses_weights: [i16; 32],
 
-    /// 256 bits representing active inhibitory synaptic pathways
-    pub synapses_negative: [u32; 8],
-
-    /// Relative offset pointer for Central Pattern Generator backward routing
+    /// Relative offset pointer for Central Pattern Generator backward routing (4 Bytes)
     pub loopback_address: u32,
 
-    /// Remaining lingering energy amplitude inside the recurrent loop
+    /// Current accumulated potential headroom (4 Bytes)
+    pub local_potential: i32,
+
+    /// Dynamic activation threshold before a spike event is triggered (4 Bytes)
+    pub activation_threshold: i32,
+
+    /// Remaining lingering energy amplitude inside the recurrent loop (1 Byte)
     pub loopback_energy: u8,
 
-    /// Current integer accumulation potential
-    pub local_potential: i16,
-
-    /// Dynamic activation threshold before a spike event is triggered
-    pub activation_threshold: i16,
-
-    /// Strict padding to guarantee that instances align perfectly to hardware bounds (128 bytes total).
-    /// Taking into account compiler alignment padding (1 byte between loopback_energy and local_potential),
-    /// we use exactly 54 bytes of padding.
-    pub _padding: [u8; 54],
+    /// Explicit padding array ensuring the total struct size hits exactly 128 bytes on silicon.
+    /// 128 - (64 + 4 + 4 + 4 + 1) = 51 bytes of trailing block safety.
+    /// By ordering fields by alignment, we eliminate compiler-inserted padding.
+    pub _padding: [u8; 51],
 }
 
-pub struct AtomicPotentialState {
-    pub potential: AtomicI16,
-}
-
-impl AtomicPotentialState {
-    pub fn new(initial: i16) -> Self {
+impl MaxRangeNeuromorphicLine {
+    /// Instantiate a completely sterile, cache-aligned neural line
+    pub fn new(initial_threshold: i32) -> Self {
         Self {
-            potential: AtomicI16::new(initial),
+            synapses_weights: [0; 32],
+            loopback_address: 0,
+            loopback_energy: 0,
+            local_potential: 0,
+            activation_threshold: initial_threshold,
+            _padding: [0; 51],
         }
     }
 
-    pub fn try_lease_and_accumulate(&self, increment: i16) {
+    /// Single-pass Hebbian potentiation step using fast hardware-level saturating addition
+    #[inline(always)]
+    pub fn potentiate_synapse(&mut self, index: usize, adjustment: i16) {
+        if index < 32 {
+            // saturating_add guarantees the value locks at +32767 instead of crashing via overflow
+            self.synapses_weights[index] = self.synapses_weights[index].saturating_add(adjustment);
+        }
+    }
+
+    /// Single-pass Hebbian depression step using fast hardware-level saturating subtraction
+    #[inline(always)]
+    pub fn depress_synapse(&mut self, index: usize, adjustment: i16) {
+        if index < 32 {
+            // saturating_sub guarantees the value locks at -32768 instead of rolling over
+            self.synapses_weights[index] = self.synapses_weights[index].saturating_sub(adjustment);
+        }
+    }
+}
+
+pub struct AtomicPotentialState {
+    pub potential: AtomicI32,
+}
+
+impl AtomicPotentialState {
+    pub fn new(initial: i32) -> Self {
+        Self {
+            potential: AtomicI32::new(initial),
+        }
+    }
+
+    pub fn try_lease_and_accumulate(&self, increment: i32) {
         let mut current = self.potential.load(Ordering::Relaxed);
         loop {
             let target = current.saturating_add(increment);
@@ -80,8 +108,8 @@ mod tests {
 
     #[test]
     fn test_permanent_line_size_and_alignment() {
-        assert_eq!(size_of::<PermanentNeuromorphicLine>(), 128);
-        assert_eq!(align_of::<PermanentNeuromorphicLine>(), 64);
+        assert_eq!(size_of::<MaxRangeNeuromorphicLine>(), 128);
+        assert_eq!(align_of::<MaxRangeNeuromorphicLine>(), 128);
     }
 
     #[test]

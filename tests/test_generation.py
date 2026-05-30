@@ -70,8 +70,8 @@ class TestNeuronGuardGen(unittest.TestCase):
 
         # Test PyPermanentNeuromorphicLine
         line = ng.PyPermanentNeuromorphicLine()
-        line.synapses_positive = [1, 2, 3, 4, 5, 6, 7, 8]
-        self.assertEqual(line.synapses_positive, [1, 2, 3, 4, 5, 6, 7, 8])
+        line.synapses_weights = [1, 2, 3, 4, 5, 6, 7, 8] + [0] * 24
+        self.assertEqual(line.synapses_weights[:8], [1, 2, 3, 4, 5, 6, 7, 8])
 
         # Test PySpikingAttentionState
         state = ng.PySpikingAttentionState()

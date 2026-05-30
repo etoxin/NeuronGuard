@@ -12,20 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::gen_memory::PermanentNeuromorphicLine;
+use crate::gen_memory::MaxRangeNeuromorphicLine;
 
 pub const DV: usize = 8; // Value dimension
 
-/// Evaluates the ternary synaptic weight masking logic (W in {-1, 0, 1}) using binary masks.
-/// Performs bitwise AND between input_spikes and synapses_positive/synapses_negative.
-/// Bypasses floating-point ALUs entirely by using population count (.count_ones()).
-pub fn evaluate_ternary_synapses(line: &PermanentNeuromorphicLine, input_spikes: &[u32; 8]) -> i16 {
-    let mut score: i16 = 0;
-    for i in 0..8 {
-        let pos_active = input_spikes[i] & line.synapses_positive[i];
-        let neg_active = input_spikes[i] & line.synapses_negative[i];
-        score += pos_active.count_ones() as i16;
-        score -= neg_active.count_ones() as i16;
+/// Evaluates high-resolution synaptic weights.
+/// Performs direct multiplication and saturating addition without any bitwise unpacking.
+pub fn evaluate_high_res_synapses(
+    line: &MaxRangeNeuromorphicLine,
+    input_spikes: &[i16; 32],
+) -> i32 {
+    let mut score: i32 = 0;
+    for i in 0..32 {
+        score = score.saturating_add(line.synapses_weights[i] as i32 * input_spikes[i] as i32);
     }
     score
 }
@@ -99,27 +98,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_evaluate_ternary_synapses() {
-        let mut line = PermanentNeuromorphicLine {
-            synapses_positive: [0; 8],
-            synapses_negative: [0; 8],
-            loopback_address: 0,
-            loopback_energy: 0,
-            local_potential: 0,
-            activation_threshold: 0,
-            _padding: [0; 54],
-        };
+    fn test_evaluate_high_res_synapses() {
+        let mut line = MaxRangeNeuromorphicLine::new(15);
 
-        // Set some positive and negative synapses
-        line.synapses_positive[0] = 0b1011; // Bits 0, 1, 3 are positive
-        line.synapses_negative[0] = 0b0100; // Bit 2 is negative
+        // Set some synaptic weights
+        line.synapses_weights[0] = 100;
+        line.synapses_weights[1] = -50;
+        line.synapses_weights[2] = 200;
 
-        let mut input_spikes = [0u32; 8];
-        input_spikes[0] = 0b1111; // All first 4 bits spike
+        let mut input_spikes = [0i16; 32];
+        input_spikes[0] = 1;
+        input_spikes[1] = 2;
+        input_spikes[2] = 1;
 
-        let score = evaluate_ternary_synapses(&line, &input_spikes);
-        // 3 positive active, 1 negative active -> score should be 3 - 1 = 2
-        assert_eq!(score, 2);
+        let score = evaluate_high_res_synapses(&line, &input_spikes);
+        // 100*1 + (-50)*2 + 200*1 = 100 - 100 + 200 = 200
+        assert_eq!(score, 200);
     }
 
     #[test]
