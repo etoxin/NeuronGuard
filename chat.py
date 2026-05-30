@@ -14,6 +14,7 @@
 
 import json
 import os
+import sys
 
 import neuronguard as ng
 import numpy as np
@@ -26,7 +27,8 @@ def chat():
     print("======================================================================")
 
     vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
-    temperature = float(os.environ.get("TEMPERATURE", 0.7))
+    temperature = float(os.environ.get("TEMPERATURE", 0.6))
+    repetition_penalty = float(os.environ.get("REP_PENALTY", 1.5))
 
     vocab_file = "wikipedia_vocab.txt"
     weights_file = "wikipedia_weights.txt"
@@ -34,7 +36,7 @@ def chat():
     if not os.path.exists(vocab_file) or not os.path.exists(weights_file):
         print("⚠️ Pre-trained weights or vocabulary file not found!")
         print("💡 Please run the training pipeline first using:")
-        print("   python train_generative_poc.py")
+        print("    python train_stream_harvester.py")
         return
 
     print("Loading vocabulary...")
@@ -84,6 +86,8 @@ def chat():
                 continue
 
             prompt_ids = tokenizer.encode(user_input)
+            if not prompt_ids:
+                continue
 
             # Reset potentials for a clean generation session
             trainer_field.reset_potentials()
@@ -92,49 +96,72 @@ def chat():
             trainer_field.process_step_sync(prompt_ids)
 
             generated_sequence = []
+            # FIX: Start the generation pass targeting the NEXT token step, avoiding double-processing prompt_ids[-1]
             current_token_id = prompt_ids[-1]
 
-            # Autoregressive generation loop
-            max_generation_length = 20
+            max_generation_length = 30
+            print("🧠 NeuronGuard: ", end="", flush=True)
 
             for _ in range(max_generation_length):
-                trainer_field.process_step_sync([current_token_id])
-
-                # Pull raw potentials
+                # Pull raw potentials before mutating the state further
                 raw_potentials = np.array(
                     trainer_field.get_potentials(), dtype=np.float32
                 )
 
+                # Apply an aggressive sliding window repetition penalty to suppress attractor states
+                for token_id in set(generated_sequence[-8:]):
+                    if raw_potentials[token_id] > 0:
+                        raw_potentials[token_id] /= repetition_penalty
+                    else:
+                        raw_potentials[token_id] *= repetition_penalty
+
                 # Apply stochastic Temperature layer
                 scaled_logits = raw_potentials / max(temperature, 1e-5)
 
-                # Softmax
+                # Stable Softmax execution
                 exp_logits = np.exp(scaled_logits - np.max(scaled_logits))
                 probabilities = exp_logits / exp_logits.sum()
 
-                # Top-10 sampling pool filter
+                # Top-10 sampling pool filter (Nucleus constraint)
                 top_indices = np.argpartition(probabilities, -10)[-10:]
                 top_probs = probabilities[top_indices]
                 top_probs /= top_probs.sum()
 
                 sampled_token_id = int(np.random.choice(top_indices, p=top_probs))
 
-                if sampled_token_id == 49999:  # EOS marker
+                if sampled_token_id == 49999:  # Strict EOS marker check
                     break
+
+                # Subword text stitching streaming block
+                emitted_token_str = tokenizer.inverse_vocab.get(sampled_token_id, "")
+
+                if emitted_token_str:
+                    # Adjust these string prefixes to match your subword token formatting rules (e.g., "##" or " ")
+                    if emitted_token_str.startswith("##"):
+                        clean_token = emitted_token_str.replace("##", "")
+                        print(clean_token, end="", flush=True)
+                    elif emitted_token_str.startswith(" "):
+                        clean_token = emitted_token_str.replace(" ", " ")
+                        print(clean_token, end="", flush=True)
+                    else:
+                        if emitted_token_str in ".,!?;:'\"-":
+                            print(emitted_token_str, end="", flush=True)
+                        else:
+                            print(f" {emitted_token_str}", end="", flush=True)
 
                 generated_sequence.append(sampled_token_id)
                 current_token_id = sampled_token_id
 
-                # Apply decay
+                # Step the event clock and decay active potentials by 10%
+                trainer_field.process_step_sync([current_token_id])
                 trainer_field.decay_potentials(0.90)
 
-            response = tokenizer.decode(generated_sequence)
-            print(f"🧠 NeuronGuard: {response}")
+            print()  # Clear terminal line at generation boundaries
 
         except KeyboardInterrupt:
             break
         except Exception as e:
-            print(f"⚠️ Error during generation: {e}")
+            print(f"\n⚠️ Error during generation: {e}")
 
 
 if __name__ == "__main__":
