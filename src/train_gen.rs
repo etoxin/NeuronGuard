@@ -170,6 +170,19 @@ impl NeuronGuardTrainerField {
         let b64_str = std::fs::read_to_string(path)?;
         let bytes = base64_decode(&b64_str);
 
+        // Strict file size validation to prevent silent loading failures of stale/mismatched weight cards
+        let expected_size = self.sensory_count * 112;
+        if bytes.len() != expected_size {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Synaptic weights file size mismatch: expected {} bytes, got {} bytes",
+                    expected_size,
+                    bytes.len()
+                ),
+            ));
+        }
+
         let mut offset = 0;
         for line in &mut self.lines {
             if offset + 112 > bytes.len() {

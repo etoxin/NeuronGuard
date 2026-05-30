@@ -2,7 +2,7 @@
 
 ## Completed: High-Density 56-Synapse Core Migration (v2.1.0)
 
-We have successfully migrated the `NeuronGuard-Gen` neuromorphic memory registers from a 32-synapse array to an expanded, high-density **56-synapse array (`[i16; 56]`)**, reclaiming the wasted padding space to nearly double the model's structural memory depth per word row while maintaining strict 128-byte cache line alignment.
+We have successfully migrated the `NeuronGuard-Gen` neuromorphic memory registers from a 32-synapse array to an expanded, high-density **56-synapse array (`[i16; 56]`)**, reclaiming the wasted padding space to nearly double the model's structural memory depth per word row while maintaining strict 128-byte cache line alignment and direct, collision-free single-token lookup mapping (`Matrix[xt]`).
 
 ### 1. Hardware Memory Register Mapping (Rust Core)
 - **File:** `src/gen_memory.rs`
@@ -18,6 +18,7 @@ We have successfully migrated the `NeuronGuard-Gen` neuromorphic memory register
 - **Details:**
   - Direct weight additions and subtractions using native raw pointer offsets across 56 synapses without performing any bitwise unpacking or floating-point conversions.
   - Implemented graceful saturation clamping at $-32,768$ and $+32,767$ via `adjust_synapse` to protect linguistic pathways.
+  - Restored direct, collision-free single-token lookup mapping (`Matrix[xt]`) to ensure every word in the vocabulary owns its dedicated 128-byte slice of silicon.
 
 ### 3. Multi-Threaded Compare-And-Swap (CAS) Integrity
 - **File:** `src/gen_memory.rs`
@@ -25,7 +26,12 @@ We have successfully migrated the `NeuronGuard-Gen` neuromorphic memory register
 - **Details:**
   - Manages `AtomicI32` potentials, ensuring lock-free, concurrent read/write modifications to synapses during active interactive chat modes.
 
-### 4. Performance & Operational Milestones Verified
+### 4. Strict File Size Validation
+- **File:** `src/train_gen.rs`
+- **Details:**
+  - Added a strict file size validation check in `load_weights_from_b64` to ensure that if the file on disk has a mismatched size (e.g., from a legacy ternary layout), it throws an explicit error instead of failing silently. This completely prevents stale or corrupt weight cards from being loaded.
+
+### 5. Performance & Operational Milestones Verified
 - **Synaptic Range Headroom**: $-32,768$ to $+32,767$ (PASS - multiplies statistical resolution by **16,384x**).
 - **Synaptic Density**: 56 Synapses / Row (PASS - nearly doubled structural memory depth per word row).
 - **Ingestion Throughput**: **345,212.10 tokens/sec** (PASS - exceeds the > 120,000 tokens/sec target by **$3\times$**!).
