@@ -62,8 +62,13 @@ class NeuronGuardTokenizer:
     def decode(self, token_ids):
         """
         Decodes a list of Token IDs back into a string using tiktoken's native decoder.
+        Gracefully ignores any invalid UTF-8 byte sequences to prevent replacement characters.
         """
-        return self.enc.decode(token_ids)
+        try:
+            token_bytes = self.enc.decode_bytes(token_ids)
+            return token_bytes.decode("utf-8", errors="ignore")
+        except Exception:
+            return self.enc.decode(token_ids)
 
     def split_topological_fields(self, text):
         """

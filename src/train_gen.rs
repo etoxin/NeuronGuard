@@ -123,14 +123,14 @@ impl NeuronGuardTrainerField {
             // Potentiation: reinforce connection to xt_next
             let j_next = (xt_next + self.motor_count - xt) % self.motor_count;
             if j_next < 32 {
-                self.lines[xt].potentiate_synapse(j_next, 1);
+                self.lines[xt].potentiate_synapse(j_next, 100); // Upgraded from 1 to 100 for stronger associations
             }
 
             // Depression: penalize connection to incorrect prediction
             if prediction != xt_next {
                 let k_pred = (prediction + self.motor_count - xt) % self.motor_count;
                 if k_pred < 32 {
-                    self.lines[xt].depress_synapse(k_pred, 1);
+                    self.lines[xt].depress_synapse(k_pred, 50); // Upgraded from 1 to 50 for stronger penalty
                 }
             }
 
@@ -309,7 +309,7 @@ mod tests {
 
         // Synaptic pathway from 2 to 5 should be potentiated
         let j_next = (5 + 10 - 2) % 10; // 3
-        assert_eq!(trainer.lines[2].synapses_weights[j_next], 1);
+        assert_eq!(trainer.lines[2].synapses_weights[j_next], 100);
     }
 
     #[test]
