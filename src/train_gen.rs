@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::gen_memory::MaxRangeNeuromorphicLine;
+use crate::gen_memory::HighDensityNeuromorphicLine;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// NeuronGuardTrainerField
@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 pub struct NeuronGuardTrainerField {
     pub sensory_count: usize,
     pub motor_count: usize,
-    pub lines: Vec<MaxRangeNeuromorphicLine>,
+    pub lines: Vec<HighDensityNeuromorphicLine>,
     pub potentials: Vec<AtomicI32>,
     pub macro_potentials: Vec<AtomicI32>, // Added for fast hierarchical WTA search
 }
@@ -30,7 +30,7 @@ impl NeuronGuardTrainerField {
     pub fn new(sensory_count: usize, motor_count: usize) -> Self {
         let mut lines = Vec::with_capacity(sensory_count);
         for _ in 0..sensory_count {
-            lines.push(MaxRangeNeuromorphicLine::new(15));
+            lines.push(HighDensityNeuromorphicLine::new(15));
         }
 
         let mut potentials = Vec::with_capacity(motor_count);
@@ -81,7 +81,7 @@ impl NeuronGuardTrainerField {
 
             // 1. Sensory Injection & Potentials Accumulation
             let line = &self.lines[xt];
-            for j in 0..32 {
+            for j in 0..56 {
                 let target_token_id = (xt + j) % self.motor_count;
                 let macro_idx = target_token_id / 1000;
                 let weight = line.synapses_weights[j] as i32;
@@ -122,15 +122,15 @@ impl NeuronGuardTrainerField {
             // 3. Synaptic Update (Hebbian Rule)
             // Potentiation: reinforce connection to xt_next
             let j_next = (xt_next + self.motor_count - xt) % self.motor_count;
-            if j_next < 32 {
-                self.lines[xt].potentiate_synapse(j_next, 100); // Upgraded from 1 to 100 for stronger associations
+            if j_next < 56 {
+                self.lines[xt].adjust_synapse(j_next, 100); // Upgraded from 1 to 100 for stronger associations
             }
 
             // Depression: penalize connection to incorrect prediction
             if prediction != xt_next {
                 let k_pred = (prediction + self.motor_count - xt) % self.motor_count;
-                if k_pred < 32 {
-                    self.lines[xt].depress_synapse(k_pred, 50); // Upgraded from 1 to 50 for stronger penalty
+                if k_pred < 56 {
+                    self.lines[xt].adjust_synapse(k_pred, -50); // Upgraded from 1 to 50 for stronger penalty
                 }
             }
 
@@ -156,7 +156,7 @@ impl NeuronGuardTrainerField {
 
     /// Serializes the final synaptic matrix directly into a flat, contiguous binary array.
     pub fn serialize_weights(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(self.sensory_count * 64);
+        let mut bytes = Vec::with_capacity(self.sensory_count * 112);
         for line in &self.lines {
             for &val in &line.synapses_weights {
                 bytes.extend_from_slice(&val.to_le_bytes());
@@ -172,10 +172,10 @@ impl NeuronGuardTrainerField {
 
         let mut offset = 0;
         for line in &mut self.lines {
-            if offset + 64 > bytes.len() {
+            if offset + 112 > bytes.len() {
                 break;
             }
-            for j in 0..32 {
+            for j in 0..56 {
                 line.synapses_weights[j] =
                     i16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
                 offset += 2;
@@ -192,7 +192,7 @@ impl NeuronGuardTrainerField {
                 continue;
             }
             let line = &self.lines[xt];
-            for j in 0..32 {
+            for j in 0..56 {
                 let target_token_id = (xt + j) % self.motor_count;
                 let weight = line.synapses_weights[j] as i32;
                 if weight != 0 {

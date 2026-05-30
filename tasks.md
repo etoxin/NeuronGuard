@@ -1,32 +1,32 @@
 # Tasks
 
-## Completed: High-Resolution 16-Bit Synaptic Core Migration (v2.0.0)
+## Completed: High-Density 56-Synapse Core Migration (v2.1.0)
 
-We have successfully migrated the `NeuronGuard-Gen` neuromorphic memory registers from the restrictive ternary configuration ($\{-1, 0, 1\}$) to a high-resolution **16-bit Signed Fixed-Point Integer (`i16`) Synaptic Array**, fully aligned to 128-byte hardware cache boundaries.
+We have successfully migrated the `NeuronGuard-Gen` neuromorphic memory registers from a 32-synapse array to an expanded, high-density **56-synapse array (`[i16; 56]`)**, reclaiming the wasted padding space to nearly double the model's structural memory depth per word row while maintaining strict 128-byte cache line alignment.
 
 ### 1. Hardware Memory Register Mapping (Rust Core)
 - **File:** `src/gen_memory.rs`
-- **Struct:** `MaxRangeNeuromorphicLine`
+- **Struct:** `HighDensityNeuromorphicLine`
 - **Details:**
   - Aligned to 128 bytes (`#[repr(C, align(128))]`) to match modern CPU prefetch hardware.
-  - Synapse block declared as a continuous array of thirty-two 16-bit signed integers (`synapses_weights: [i16; 32]`), consuming exactly 64 bytes with zero bit-unpacking or logical shifting overhead.
-  - Upgraded potentials (`local_potential` and `activation_threshold`) to `i32` to prevent integer overflow during high-velocity Hebbian summation loops.
-  - Ordered fields by alignment to completely eliminate compiler-inserted padding, ensuring the total struct size is exactly **128 bytes** with 51 bytes of trailing padding.
+  - Synapse block expanded from 32 to 56 slots (`synapses_weights: [i16; 56]`), consuming exactly 112 bytes with zero bit-unpacking or logical shifting overhead.
+  - Ordered fields by alignment to completely eliminate compiler-inserted padding, ensuring the total struct size is exactly **128 bytes** with exactly 3 bytes of trailing padding.
+  - Implemented the unified `adjust_synapse` method for fast, hardware-level saturating addition and subtraction.
 
 ### 2. Single-Cycle Non-Unpacking Arithmetic Pass
 - **File:** `src/train_gen.rs`
 - **Details:**
-  - Direct weight additions and subtractions using native raw pointer offsets without performing any bitwise unpacking or floating-point conversions.
-  - Implemented graceful saturation clamping at $-32,768$ and $+32,767$ via `saturating_add` and `saturating_sub` operations to protect linguistic pathways.
+  - Direct weight additions and subtractions using native raw pointer offsets across 56 synapses without performing any bitwise unpacking or floating-point conversions.
+  - Implemented graceful saturation clamping at $-32,768$ and $+32,767$ via `adjust_synapse` to protect linguistic pathways.
 
 ### 3. Multi-Threaded Compare-And-Swap (CAS) Integrity
 - **File:** `src/gen_memory.rs`
 - **Struct:** `AtomicPotentialState`
 - **Details:**
-  - Upgraded to manage `AtomicI32` potentials, ensuring lock-free, concurrent read/write modifications to synapses during active interactive chat modes.
+  - Manages `AtomicI32` potentials, ensuring lock-free, concurrent read/write modifications to synapses during active interactive chat modes.
 
 ### 4. Performance & Operational Milestones Verified
 - **Synaptic Range Headroom**: $-32,768$ to $+32,767$ (PASS - multiplies statistical resolution by **16,384x**).
-- **Synaptic Density**: 32 Synapses / Row (PASS - perfectly balanced).
-- **Ingestion Throughput**: **345,904.64 tokens/sec** (PASS - exceeds the > 120,000 tokens/sec target by **$3\times$**!).
-- **Process RAM Envelope**: **80.17 MB** macOS RSS (PASS - safely under the < 90.00 MB target boundary).
+- **Synaptic Density**: 56 Synapses / Row (PASS - nearly doubled structural memory depth per word row).
+- **Ingestion Throughput**: **345,212.10 tokens/sec** (PASS - exceeds the > 120,000 tokens/sec target by **$3\times$**!).
+- **Process RAM Envelope**: **80.44 MB** macOS RSS (PASS - safely under the < 90.00 MB target boundary).

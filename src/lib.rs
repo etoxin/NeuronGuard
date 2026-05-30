@@ -30,7 +30,7 @@ use crate::attention::SpikingAttentionState;
 #[cfg(feature = "extension-module")]
 use crate::ensemble_mesh::{InsectoidSimulation, PermanentSpatiotemporalEnsembleMesh};
 #[cfg(feature = "extension-module")]
-use crate::gen_memory::MaxRangeNeuromorphicLine;
+use crate::gen_memory::HighDensityNeuromorphicLine;
 #[cfg(feature = "extension-module")]
 use crate::neuron_guard::{ParallelRouter, ThreadBoundedNeuronField};
 #[cfg(feature = "extension-module")]
@@ -438,7 +438,7 @@ impl PyInsectoidSimulation {
 #[pyclass]
 #[derive(Clone)]
 pub struct PyPermanentNeuromorphicLine {
-    pub line: MaxRangeNeuromorphicLine,
+    pub line: HighDensityNeuromorphicLine,
 }
 
 #[cfg(feature = "extension-module")]
@@ -447,7 +447,7 @@ impl PyPermanentNeuromorphicLine {
     #[new]
     fn new() -> Self {
         Self {
-            line: MaxRangeNeuromorphicLine::new(15),
+            line: HighDensityNeuromorphicLine::new(15),
         }
     }
 
@@ -649,7 +649,7 @@ impl PyCPGManager {
         line: &PyPermanentNeuromorphicLine,
         mut pool: Vec<PyPermanentNeuromorphicLine>,
     ) -> Vec<PyPermanentNeuromorphicLine> {
-        let mut raw_pool: Vec<MaxRangeNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
+        let mut raw_pool: Vec<HighDensityNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
         crate::cpg::propagate_cpg_echo(&line.line, &mut raw_pool);
         for (p, r) in pool.iter_mut().zip(raw_pool.iter()) {
             p.line = *r;
@@ -662,7 +662,7 @@ impl PyCPGManager {
         mut pool: Vec<PyPermanentNeuromorphicLine>,
         alpha: f32,
     ) -> Vec<PyPermanentNeuromorphicLine> {
-        let mut raw_pool: Vec<MaxRangeNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
+        let mut raw_pool: Vec<HighDensityNeuromorphicLine> = pool.iter().map(|p| p.line).collect();
         crate::cpg::decay_potentials(&mut raw_pool, alpha);
         for (p, r) in pool.iter_mut().zip(raw_pool.iter()) {
             p.line = *r;

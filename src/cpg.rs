@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::gen_memory::MaxRangeNeuromorphicLine;
+use crate::gen_memory::HighDensityNeuromorphicLine;
 
 /// Propagates CPG recurrent echoes backward to preceding cache locations.
 /// If a line's local_potential meets or exceeds its activation_threshold,
 /// it echoes loopback_energy backward to the target loopback_address in the memory pool.
 pub fn propagate_cpg_echo(
-    line: &MaxRangeNeuromorphicLine,
-    memory_pool: &mut [MaxRangeNeuromorphicLine],
+    line: &HighDensityNeuromorphicLine,
+    memory_pool: &mut [HighDensityNeuromorphicLine],
 ) {
     if line.local_potential >= line.activation_threshold && line.activation_threshold > 0 {
         let target_idx = line.loopback_address as usize;
@@ -33,7 +33,7 @@ pub fn propagate_cpg_echo(
 
 /// Applies a fixed decay factor (alpha) to the local potentials and loopback energies
 /// of all neuromorphic lines in the memory pool to prevent saturation.
-pub fn decay_potentials(lines: &mut [MaxRangeNeuromorphicLine], alpha: f32) {
+pub fn decay_potentials(lines: &mut [HighDensityNeuromorphicLine], alpha: f32) {
     for line in lines.iter_mut() {
         // Decay local potential
         let current_pot = line.local_potential as f32;
@@ -60,21 +60,21 @@ mod tests {
     #[test]
     fn test_propagate_cpg_echo() {
         let mut memory_pool = vec![
-            MaxRangeNeuromorphicLine {
-                synapses_weights: [0; 32],
+            HighDensityNeuromorphicLine {
+                synapses_weights: [0; 56],
                 loopback_address: 0,
                 loopback_energy: 0,
                 local_potential: 10,
                 activation_threshold: 15,
-                _padding: [0; 51],
+                _padding: [0; 3],
             },
-            MaxRangeNeuromorphicLine {
-                synapses_weights: [0; 32],
+            HighDensityNeuromorphicLine {
+                synapses_weights: [0; 56],
                 loopback_address: 0, // Echoes back to index 0
                 loopback_energy: 5,
                 local_potential: 20,
                 activation_threshold: 15, // Spikes!
-                _padding: [0; 51],
+                _padding: [0; 3],
             },
         ];
 
@@ -88,13 +88,13 @@ mod tests {
 
     #[test]
     fn test_decay_potentials_and_accumulators() {
-        let mut memory_pool = vec![MaxRangeNeuromorphicLine {
-            synapses_weights: [0; 32],
+        let mut memory_pool = vec![HighDensityNeuromorphicLine {
+            synapses_weights: [0; 56],
             loopback_address: 0,
             loopback_energy: 10,
             local_potential: 100,
             activation_threshold: 15,
-            _padding: [0; 51],
+            _padding: [0; 3],
         }];
 
         decay_potentials(&mut memory_pool, 0.90);
