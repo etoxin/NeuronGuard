@@ -14,64 +14,44 @@
 
 import re
 
+import tiktoken
+
 
 class NeuronGuardTokenizer:
     """
     NeuronGuardTokenizer
     A highly compressed, local Byte-Pair Encoding (BPE) dictionary mapping
     subword fragments down to flat u16 Token IDs.
+    Uses OpenAI's gpt2 vocabulary for 100% readable English words and subwords.
     """
 
     def __init__(self, vocab_size=50000):
         self.vocab_size = vocab_size
-        # Initialize a basic vocabulary with ASCII characters and common subwords
-        self.vocab = {chr(i): i for i in range(256)}
-        self.inverse_vocab = {i: chr(i) for i in range(256)}
+        self.vocab = {}
+        self.inverse_vocab = {}
 
-        # Add some common subwords to simulate a trained BPE vocabulary up to vocab_size
-        common_subwords = [
-            "the",
-            "and",
-            "ing",
-            "ion",
-            "ent",
-            "for",
-            "that",
-            "tis",
-            "es",
-            "en",
-            "to",
-            "it",
-            "is",
-            "was",
-            "he",
-            "she",
-            "his",
-            "her",
-            "in",
-            "on",
-            "at",
-            "by",
-            "an",
-            "with",
-            "this",
-            "you",
-            "not",
-            "but",
-            "or",
-            "as",
-        ]
-        for i, subword in enumerate(common_subwords):
-            token_id = 256 + i
-            self.vocab[subword] = token_id
-            self.inverse_vocab[token_id] = subword
+        # Load OpenAI's gpt2 encoder
+        enc = tiktoken.get_encoding("gpt2")
 
-        # Add synthetic subwords to fill the rest of the vocabulary up to vocab_size
-        # This ensures that every token ID from 0 to vocab_size-1 has a valid string representation
-        for i in range(256 + len(common_subwords), vocab_size):
-            subword = f"sub_{i}"
-            self.vocab[subword] = i
-            self.inverse_vocab[i] = subword
+        # Extract the first vocab_size tokens
+        for i in range(vocab_size):
+            try:
+                # Decode the token bytes to string
+                token_bytes = enc.decode_single_token_bytes(i)
+                token_str = token_bytes.decode("utf-8", errors="ignore")
+
+                # Clean up control characters or replace them
+                if not token_str.strip() and len(token_str) > 0:
+                    # Keep spaces or newlines as readable representations
+                    token_str = token_str.replace("\n", "⏎").replace("\t", "⇥")
+
+                self.vocab[token_str] = i
+                self.inverse_vocab[i] = token_str
+            except Exception:
+                # Fallback if token ID is invalid
+                token_str = f"sub_{i}"
+                self.vocab[token_str] = i
+                self.inverse_vocab[i] = token_str
 
     def encode(self, text):
         """
@@ -82,7 +62,7 @@ class NeuronGuardTokenizer:
         while i < len(text):
             match = None
             # Try to find the longest matching subword in vocabulary
-            for length in range(min(10, len(text) - i), 0, -1):
+            for length in range(min(15, len(text) - i), 0, -1):
                 subword = text[i : i + length]
                 if subword in self.vocab:
                     match = subword
@@ -99,8 +79,25 @@ class NeuronGuardTokenizer:
     def decode(self, token_ids):
         """
         Decodes a list of Token IDs back into a string.
+        Intelligently spaces out words if they don't already contain leading spaces.
         """
-        return "".join(self.inverse_vocab.get(tid, "?") for tid in token_ids)
+        decoded_tokens = [self.inverse_vocab.get(tid, "?") for tid in token_ids]
+        result = []
+        for i, token in enumerate(decoded_tokens):
+            if i > 0:
+                prev_token = decoded_tokens[i - 1]
+                # If the current token doesn't start with a space/punctuation,
+                # and the previous token doesn't end with a space, add a space.
+                if (
+                    not token.startswith(" ")
+                    and not token.startswith("Ġ")
+                    and not prev_token.endswith(" ")
+                    and not prev_token.endswith("Ġ")
+                    and token not in ".,!?;:⏎"
+                ):
+                    result.append(" ")
+            result.append(token)
+        return "".join(result)
 
     def split_topological_fields(self, text):
         """
