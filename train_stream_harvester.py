@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
+import json
+import os
 import resource
+import sys
 import time
 
 import neuronguard as ng
@@ -66,10 +70,7 @@ def harvest_and_train(urls, vocab_size=50000, max_books=None):
     print("Initializing vocabulary...")
     tokenizer = NeuronGuardTokenizer(vocab_size=vocab_size)
 
-    # Save vocabulary file
     vocab_file = "wikipedia_vocab.txt"
-    import json
-
     with open(vocab_file, "w") as f:
         json.dump(tokenizer.vocab, f)
     print(f"Successfully generated {vocab_file}.")
@@ -88,7 +89,6 @@ def harvest_and_train(urls, vocab_size=50000, max_books=None):
         print(f"[{book_idx + 1}/{len(urls)}] Connecting to stream: {url}")
 
         try:
-            # stream=True ensures chunked line-by-line networking into a small, fixed buffer
             response = requests.get(url, stream=True, timeout=15)
             response.raise_for_status()
 
@@ -101,7 +101,6 @@ def harvest_and_train(urls, vocab_size=50000, max_books=None):
 
                 clean_line = raw_line.strip()
 
-                # Filter out standard license headers to isolate pristine syntax patterns
                 if "*** START OF" in clean_line.upper():
                     in_story_body = True
                     continue
@@ -110,18 +109,24 @@ def harvest_and_train(urls, vocab_size=50000, max_books=None):
                     break
 
                 if in_story_body and clean_line:
-                    # Measure only the active processing time (tokenization + training)
                     proc_start = time.perf_counter()
                     token_ids = tokenizer.encode(clean_line)
                     if token_ids:
                         trainer_field.train_stream_step_sync(token_ids)
-                    total_processing_time += time.perf_counter() - proc_start
+                        # Accumulate metrics in-place
+                        delta_t = time.perf_counter() - proc_start
+                        total_processing_time += delta_t
 
-                    if token_ids:
-                        book_tokens_count += len(token_ids)
-                        total_tokens_processed += len(token_ids)
+                        num_tokens = len(token_ids)
+                        book_tokens_count += num_tokens
+                        total_tokens_processed += num_tokens
 
             print(f"  -> Ingested {book_tokens_count} tokens from {url.split('/')[-1]}")
+
+            # Close stream connections and purge dangling string buffers explicitly
+            response.close()
+            del response
+            gc.collect()
 
         except Exception as e:
             print(f"⚠️ Skipping corrupt or timed-out endpoint {url}: {e}")
@@ -134,7 +139,8 @@ def harvest_and_train(urls, vocab_size=50000, max_books=None):
         else 0
     )
 
-    # Measure memory footprint (macOS ru_maxrss is in bytes)
+    # Force a final comprehensive garbage collection sweep before measuring RSS
+    gc.collect()
     max_rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     max_rss_mb = max_rss_bytes / (1024 * 1024)
 
@@ -166,15 +172,8 @@ def harvest_and_train(urls, vocab_size=50000, max_books=None):
 
 
 if __name__ == "__main__":
-    import os
-
     vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
-
-    # Read maximum number of books to train on
     max_books_str = os.environ.get("TRAIN_BOOKS", "").strip()
-
-    # Also check command-line arguments (e.g., if mise appended them via --vars)
-    import sys
 
     for arg in sys.argv:
         if "train_books=" in arg:
@@ -184,7 +183,6 @@ if __name__ == "__main__":
         int(max_books_str) if max_books_str and max_books_str.isdigit() else None
     )
 
-    # Check if custom book URLs are provided in the environment
     custom_urls = os.environ.get("BOOK_URLS", "").strip()
     if custom_urls:
         urls = [url.strip() for url in custom_urls.split(",") if url.strip()]
