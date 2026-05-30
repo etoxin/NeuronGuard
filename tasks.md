@@ -161,3 +161,43 @@ To maintain strict cache-line alignment and optimize memory footprint, we have t
   - Zero heap allocations in the inference path.
   - Sub-millisecond Time-To-First-Token (TTFT) generation.
   - Total memory footprint of the active execution context.
+
+---
+
+## Phase 8: NeuronGuard-Gen Training Pipeline (Rust Core)
+
+### Task 8.1: Implement `NeuronGuardTrainerField`
+- **File:** `src/train_gen.rs` (New Module)
+- **Description:** Implement the `NeuronGuardTrainerField` struct and its training methods.
+- **Details:**
+  - Manage a flat, contiguous memory block of `PermanentNeuromorphicLine` of size 50,000.
+  - Implement `train_stream_step_sync(&self, token_indices: Vec<u32>)` implementing the Spike-Driven Hebbian Plasticity training loop:
+    - For each token step $t$ in the text stream:
+      1. **Sensory Injection:** Token ID $X_t$ fires a binary spike into its assigned 128-byte cache-aligned memory row.
+      2. **Potentials Accumulation:** Active pathways increment target accumulators across the 50,000-word vocabulary grid using sparse integer additions.
+      3. **Local Error Evaluation:** Check which token index achieved the highest potential (the prediction).
+      4. **Synaptic Update (Hebbian Rule):**
+         - **Potentiation:** Synaptic pathways between $X_t$ and actual next token $X_{t+1}$ are reinforced (incremented toward `1`).
+         - **Depression:** Pathways that led to incorrect high-spiking tokens are penalized (decremented toward `-1`).
+      5. **Decay Step:** Continuous background decay loop shaves a fixed percentage of energy off the active mesh.
+  - Use atomic Compare-And-Swap (`CAS`) operations via the `Guard/Lease` transactional pattern for lock-free weight updates.
+  - Completely bypass the processor's floating-point ALUs, utilizing purely integer-based increments, decrements, and bit-shifts.
+
+### Task 8.2: Implement Flat Serialization & Base64 Encoding
+- **File:** `src/train_gen.rs`
+- **Description:** Implement fast binary serialization and base64 encoding to save weights to a `.txt` file payload.
+- **Details:**
+  - Serialize the final synaptic matrix directly into a flat, contiguous binary array in under 100 milliseconds.
+  - Compress and base64-encode the raw binary array directly into a clean `wikipedia_weights.txt` text file payload.
+
+---
+
+## Phase 9: Zero-Disk Streaming Dataset Pipeline & Vocabulary Generation (Python)
+
+### Task 9.1: Implement Subword Vocabulary Generator
+- **File:** `python/neuronguard/vocab.py` (New File)
+- **Description:** Build a strict 50,000-token vocabulary based on occurrence density with mandatory control tokens: `<PAD>` (0), `<UNK>` (1), `<BOS>` (2), and `<EOS>` (3).
+
+### Task 9.2: Implement Streaming Dataset Pipeline
+- **File:** `python/neuronguard/train_pipeline.py` (New File)
+- **Description:** Stream the `wikimedia/structured-wikipedia` dataset directly from the network or local raw stream, dropping the Python GIL via PyO3 to allow parallel worker threads to parse text blocks concurrently.

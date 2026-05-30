@@ -22,6 +22,7 @@ pub mod neuron_guard;
 pub mod queue;
 pub mod run;
 pub mod train;
+pub mod train_gen;
 pub mod wta;
 
 #[cfg(feature = "extension-module")]
@@ -32,6 +33,8 @@ use crate::ensemble_mesh::{InsectoidSimulation, PermanentSpatiotemporalEnsembleM
 use crate::gen_memory::PermanentNeuromorphicLine;
 #[cfg(feature = "extension-module")]
 use crate::neuron_guard::{ParallelRouter, ThreadBoundedNeuronField};
+#[cfg(feature = "extension-module")]
+use crate::train_gen::{base64_encode, NeuronGuardTrainerField};
 #[cfg(feature = "extension-module")]
 use crate::wta::HierarchicalWinnerTakeAll;
 #[cfg(feature = "extension-module")]
@@ -607,6 +610,38 @@ impl PyHierarchicalWinnerTakeAll {
 
 #[cfg(feature = "extension-module")]
 #[pyclass]
+pub struct PyNeuronGuardTrainerField {
+    pub trainer: NeuronGuardTrainerField,
+}
+
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl PyNeuronGuardTrainerField {
+    #[new]
+    fn new(sensory_count: usize, motor_count: usize) -> Self {
+        Self {
+            trainer: NeuronGuardTrainerField::new(sensory_count, motor_count),
+        }
+    }
+
+    fn reset_potentials(&self) {
+        self.trainer.reset_potentials();
+    }
+
+    fn train_stream_step_sync(&mut self, token_indices: Vec<u32>) {
+        self.trainer.train_stream_step_sync(token_indices);
+    }
+
+    fn save_weights_to_b64(&self, path: String) -> PyResult<()> {
+        let bytes = self.trainer.serialize_weights();
+        let b64_str = base64_encode(&bytes);
+        std::fs::write(path, b64_str)?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "extension-module")]
+#[pyclass]
 pub struct PyCPGManager;
 
 #[cfg(feature = "extension-module")]
@@ -655,5 +690,6 @@ fn neuronguard(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySpikingAttentionState>()?;
     m.add_class::<PyHierarchicalWinnerTakeAll>()?;
     m.add_class::<PyCPGManager>()?;
+    m.add_class::<PyNeuronGuardTrainerField>()?;
     Ok(())
 }

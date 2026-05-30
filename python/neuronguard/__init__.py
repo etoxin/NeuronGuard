@@ -15,3 +15,5 @@
 from .neuronguard import *
 from .runner import run_autoregressive_generation
 from .tokenizer import NeuronGuardTokenizer
+
+NeuronGuardTrainerField = PyNeuronGuardTrainerField

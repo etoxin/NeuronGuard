@@ -85,6 +85,24 @@ class TestNeuronGuardGen(unittest.TestCase):
         wta.macro_potentials = potentials
         self.assertEqual(wta.select_macro_cluster(), 5)
 
+    def test_trainer_field(self):
+        import os
+
+        import neuronguard as ng
+
+        trainer = ng.NeuronGuardTrainerField(sensory_count=10, motor_count=10)
+        trainer.reset_potentials()
+        trainer.train_stream_step_sync([2, 5])
+
+        # Test serialization to base64 file
+        path = "test_weights.txt"
+        trainer.save_weights_to_b64(path)
+        self.assertTrue(os.path.exists(path))
+
+        # Clean up
+        if os.path.exists(path):
+            os.remove(path)
+
 
 if __name__ == "__main__":
     unittest.main()
