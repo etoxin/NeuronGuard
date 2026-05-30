@@ -66,6 +66,13 @@ class NeuronGuardTokenizer:
             self.vocab[subword] = token_id
             self.inverse_vocab[token_id] = subword
 
+        # Add synthetic subwords to fill the rest of the vocabulary up to vocab_size
+        # This ensures that every token ID from 0 to vocab_size-1 has a valid string representation
+        for i in range(256 + len(common_subwords), vocab_size):
+            subword = f"sub_{i}"
+            self.vocab[subword] = i
+            self.inverse_vocab[i] = subword
+
     def encode(self, text):
         """
         Encodes a string into a list of Token IDs using greedy subword matching.
