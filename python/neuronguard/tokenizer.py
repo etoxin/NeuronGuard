@@ -61,26 +61,9 @@ class NeuronGuardTokenizer:
 
     def decode(self, token_ids):
         """
-        Decodes a list of Token IDs back into a string.
-        Intelligently spaces out words if they don't already contain leading spaces.
+        Decodes a list of Token IDs back into a string using tiktoken's native decoder.
         """
-        decoded_tokens = [self.inverse_vocab.get(tid, "?") for tid in token_ids]
-        result = []
-        for i, token in enumerate(decoded_tokens):
-            if i > 0:
-                prev_token = decoded_tokens[i - 1]
-                # If the current token doesn't start with a space/punctuation,
-                # and the previous token doesn't end with a space, add a space.
-                if (
-                    not token.startswith(" ")
-                    and not token.startswith("Ġ")
-                    and not prev_token.endswith(" ")
-                    and not prev_token.endswith("Ġ")
-                    and token not in ".,!?;:⏎"
-                ):
-                    result.append(" ")
-            result.append(token)
-        return "".join(result)
+        return self.enc.decode(token_ids)
 
     def split_topological_fields(self, text):
         """
