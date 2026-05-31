@@ -119,34 +119,29 @@ All examples are configured cleanly via `mise` with namespaced tasks.
 
 ```bash
 # 1. First, install the tools and build the extension
+mise trust
 mise run setup:py
 mise run build:py
 
-# 2. Explore the Getting Started Guide
-mise run examples:getting_started_text:run
-mise run examples:getting_started_tabular:run
-mise run examples:getting_started_batch:run
+# cd into the example you want to run, and run: 
+mise run
 
-# 3. Transparent AI & Continuous Learning
-mise run examples:diagnostics_mode:run
-mise run examples:continuous_learning:run
-mise run examples:machine_unlearning:run
-mise run examples:sparse_embeddings:run
+# you may need to download data before you can run.
 
-# 4. Large-Scale Benchmarks
+# Example of scripts you can run. Other examples are similar.
 mise run examples:amazon_reviews:download_data
 mise run examples:amazon_reviews:run
-
-mise run examples:stackoverflow:download_data
-mise run examples:stackoverflow:run
-
-mise run examples:dbpedia:download_data
-mise run examples:dbpedia:run
 ```
 
----
+## Installing 
 
-## Installation
+```bash
+pip install neuronguard
+```
+
+[https://pypi.org/project/neuronguard/](https://pypi.org/project/neuronguard/)
+
+## Building Locally
 
 This project uses [mise](https://mise.jdx.dev/) and [uv](https://github.com/astral-sh/uv) to manage toolchains.
 

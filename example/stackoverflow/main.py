@@ -25,7 +25,8 @@ def main():
         vocab_size=5000, 
         class_names=class_names,
         amplify_delta=15,
-        suppress_delta=5
+        suppress_delta=5,
+        use_hashed_bigrams=False
     )
 
     print("--- Training on 8,000 StackOverflow Questions (3 epochs) ---")
