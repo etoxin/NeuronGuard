@@ -42,11 +42,19 @@ run = [
 [tasks.test]
 depends = ["test:*"]
 
+[tasks."docs:py"]
+description = "Build the Python Markdown API documentation"
+run = "mkdir -p docs/python && uv run pydoc-markdown -p neuronguard > docs/python/API.md"
+
+[tasks."docs:rust"]
+description = "Build the Rust HTML documentation"
+run = "cargo doc --no-deps && mkdir -p docs/rust && cp -r target/doc/* docs/rust/"
+
 [tasks.docs]
-description = "Build the pdoc HTML documentation"
-run = "uv run pdoc -d google -o docs ./neuronguard"
+description = "Build all documentation"
+depends = ["docs:py", "docs:rust"]
 
 [tasks."docs:view"]
-description = "Open the generated documentation in your default browser"
+description = "Open the generated documentation"
 depends = ["docs"]
-run = "open docs/index.html"
+run = "open docs/python/API.md && open docs/rust/neuronguard/index.html"
