@@ -1,0 +1,11 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks."examples:higgs_boson:download_data"]
+description = "Download the Higgs Boson dataset"
+run = "uv run --no-project python download_data.py"
+
+[tasks."examples:higgs_boson:run"]
+description = "Run the NeuronGuard Higgs Boson Example"
+run = "uv run --no-project python main.py"

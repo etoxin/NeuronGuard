@@ -1,0 +1,7 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks."examples:team_composition:run"]
+description = "Run the Team Composition Example"
+run = "uv run --no-project python main.py"

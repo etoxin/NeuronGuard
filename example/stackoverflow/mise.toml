@@ -1,0 +1,11 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks."examples:stackoverflow:download_data"]
+description = "Download the StackOverflow Tag Prediction dataset"
+run = "uv run --no-project python download_data.py"
+
+[tasks."examples:stackoverflow:run"]
+description = "Run the NeuronGuard StackOverflow Example"
+run = "uv run --no-project python main.py"

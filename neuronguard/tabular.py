@@ -53,6 +53,8 @@ class TabularClassifier:
         amplify_delta=15,
         suppress_delta=5,
         baseline_delta=10,
+        use_feature_interactions=False,
+        interaction_vocab_size=1000000,
     ):
         """Initialise a TabularClassifier.
 
@@ -63,6 +65,8 @@ class TabularClassifier:
             amplify_delta: Weight increment for the correct class during training.
             suppress_delta: Weight decrement for incorrect classes during training.
             baseline_delta: Weight used for initial baseline seeding.
+            use_feature_interactions: If True, hashes pairs of features to capture 2D non-linear patterns.
+            interaction_vocab_size: Size of the hash space for interactions to prevent collisions.
         """
         self.num_classes = num_classes
         self.num_features = num_features
@@ -70,8 +74,12 @@ class TabularClassifier:
         self.amplify_delta = amplify_delta
         self.suppress_delta = suppress_delta
         self.baseline_delta = baseline_delta
+        self.use_feature_interactions = use_feature_interactions
+        self.interaction_vocab_size = interaction_vocab_size
 
         self.num_sensory = num_features * buckets_per_feature
+        if self.use_feature_interactions:
+            self.num_sensory += self.interaction_vocab_size
 
         self._field = None
         self._features_min = None
@@ -129,6 +137,16 @@ class TabularClassifier:
                 bucket = 0
 
             tokens.append(i * self.buckets_per_feature + bucket)
+            
+        if self.use_feature_interactions:
+            interaction_offset = self.num_features * self.buckets_per_feature
+            num_base_tokens = len(tokens)
+            for i in range(num_base_tokens):
+                for j in range(i + 1, num_base_tokens):
+                    # Deterministic fast hash for a pair of integers
+                    pair_hash = (tokens[i] * 83492791 + tokens[j]) % self.interaction_vocab_size
+                    tokens.append(interaction_offset + pair_hash)
+                    
         return tokens
 
     def _seed_baseline(self, default_class=0):
@@ -197,7 +215,80 @@ class TabularClassifier:
 
         self._is_fitted = True
 
-    def update(self, X, label_index):
+    def fit_from_csv(
+        self,
+        file_path,
+        feature_indices,
+        label_index,
+        epochs=1,
+        class_weights=None,
+        default_class=0,
+        delimiter=",",
+        skip_header=False
+    ):
+        """Train the classifier by streaming directly from a CSV file.
+        
+        This uses O(1) memory and is designed for massive datasets (10M+ rows)
+        that cannot fit in RAM. It makes multiple passes over the file.
+
+        Args:
+            file_path: Path to the CSV file.
+            feature_indices: List of column indices for input features.
+            label_index: Column index for the integer class label.
+            epochs: Number of training epochs.
+            class_weights: Optional dict mapping class_label -> oversample_multiplier.
+            default_class: The class to seed all neurons to initially.
+            delimiter: CSV delimiter.
+            skip_header: Whether to skip the first row.
+        """
+        import csv
+        if class_weights is None:
+            class_weights = {}
+
+        # Pass 1: Compute Boundaries
+        self._features_min = [float("inf")] * self.num_features
+        self._features_max = [float("-inf")] * self.num_features
+        
+        with open(file_path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f, delimiter=delimiter)
+            if skip_header:
+                next(reader, None)
+            for row in reader:
+                for i, fi in enumerate(feature_indices):
+                    try:
+                        val = float(row[fi])
+                        if val < self._features_min[i]:
+                            self._features_min[i] = val
+                        if val > self._features_max[i]:
+                            self._features_max[i] = val
+                    except (ValueError, IndexError):
+                        continue
+
+        self._ensure_field()
+        self._seed_baseline(default_class)
+
+        # Pass 2 to N: Training
+        for epoch in range(epochs):
+            with open(file_path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f, delimiter=delimiter)
+                if skip_header:
+                    next(reader, None)
+                for row in reader:
+                    try:
+                        label = int(float(row[label_index]))
+                        features = [row[fi] for fi in feature_indices]
+                        tokens = self._get_tokens(features)
+                        weight = class_weights.get(label, 1)
+                        for _ in range(weight):
+                            self._field.train_stream(
+                                tokens, label, self.amplify_delta, self.suppress_delta
+                            )
+                    except (ValueError, IndexError):
+                        continue
+
+        self._is_fitted = True
+
+    def update(self, X, label_index, class_weights=None):
         """Continually learn from new records on the fly.
         
         This enables zero-overhead online/continuous learning. The model weights are
@@ -206,29 +297,53 @@ class TabularClassifier:
         Args:
             X: Iterable of lists of floats (features) with the label appended.
             label_index: The index of the label in each record.
+            class_weights: Optional dict mapping class_label -> oversample_multiplier.
         """
         if not self._is_fitted:
             raise RuntimeError("Classifier must be fitted before it can be updated.")
+            
+        if class_weights is None:
+            class_weights = {}
             
         feature_indices = [i for i in range(len(X[0])) if i != label_index]
         
         for record in X:
             label = int(record[label_index])
-            indices = []
-            for feat_idx in feature_indices:
-                try:
-                    val = float(record[feat_idx])
-                    indices.append(self._get_bucket_index(feat_idx, val))
-                except (ValueError, TypeError):
-                    continue
+            features = [record[i] for i in feature_indices]
+            indices = self._get_tokens(features)
                     
             if indices:
-                weight = self.class_weights.get(label, 1)
+                weight = class_weights.get(label, 1)
                 self._field.train_stream(
                     indices, 
                     label, 
                     self.amplify_delta * weight, 
                     self.suppress_delta * weight
+                )
+
+    def unlearn(self, X, label_index):
+        """Surgically unlearn records by applying negative Hebbian deltas.
+        
+        Args:
+            X: Iterable of lists of floats (features) with the label appended.
+            label_index: The index of the label in each record.
+        """
+        if not self._is_fitted:
+            raise RuntimeError("Classifier must be fitted before it can be unlearned.")
+            
+        feature_indices = [i for i in range(len(X[0])) if i != label_index]
+        
+        for record in X:
+            label = int(record[label_index])
+            features = [record[i] for i in feature_indices]
+            indices = self._get_tokens(features)
+                    
+            if indices:
+                self._field.train_stream(
+                    indices, 
+                    label, 
+                    -self.amplify_delta, 
+                    -self.suppress_delta
                 )
 
     # -------------------------------------------------------------------------
@@ -297,6 +412,34 @@ class TabularClassifier:
             if predicted == actual:
                 correct += 1
             total += 1
+
+        accuracy = (correct / total * 100) if total > 0 else 0.0
+        report = self._format_report(confusion, correct, total, accuracy)
+        return accuracy, report
+
+    def evaluate_from_csv(self, file_path, feature_indices, label_index, delimiter=",", skip_header=False):
+        """Evaluate accuracy by streaming directly from a CSV file."""
+        import csv
+        confusion = [[0] * self.num_classes for _ in range(self.num_classes)]
+        correct = 0
+        total = 0
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f, delimiter=delimiter)
+            if skip_header:
+                next(reader, None)
+            for row in reader:
+                try:
+                    actual = int(float(row[label_index]))
+                    features = [row[fi] for fi in feature_indices]
+                except (ValueError, IndexError):
+                    continue
+
+                predicted = self.predict(features)
+                confusion[actual][predicted] += 1
+                if predicted == actual:
+                    correct += 1
+                total += 1
 
         accuracy = (correct / total * 100) if total > 0 else 0.0
         report = self._format_report(confusion, correct, total, accuracy)

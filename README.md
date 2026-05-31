@@ -51,10 +51,23 @@ Automatically buckets continuous numerical features and handles extreme class im
 ```python
 from neuronguard import TabularClassifier
 
-classifier = TabularClassifier(num_classes=2, num_features=5, buckets_per_feature=10)
+# Features are automatically bucketed into 10 buckets each.
+# use_feature_interactions=True mathematically hashes pairs of metrics together, 
+# allowing the engine to instantly learn 2D non-linear patterns (e.g. Physics Data).
+classifier = TabularClassifier(
+    num_classes=2, 
+    num_features=5, 
+    buckets_per_feature=10,
+    use_feature_interactions=True,
+    interaction_vocab_size=1000000
+)
 
-# Provide your features as a flat array per record
-classifier.fit(train_data, feature_indices=[0,1,2,3,4], label_index=5)
+# Seamlessly handles continuous data in O(1) time
+classifier.fit(
+    records=[(V1, V2, V3, V4, V5, label)], 
+    feature_indices=[0, 1, 2, 3, 4], 
+    label_index=5
+)
 prediction = classifier.predict([1.2, 0.4, 9.9, 3.1, 0.0])
 ```
 
@@ -119,30 +132,34 @@ All examples are configured cleanly via `mise` with namespaced tasks.
 
 ```bash
 # 1. First, install the tools and build the extension
+mise trust
 mise run setup:py
 mise run build:py
 
-# 2. Explore the Getting Started Guide
-mise run examples:getting_started_text:run
-mise run examples:getting_started_tabular:run
-mise run examples:getting_started_batch:run
+# cd into the example you want to run, and run: 
+mise run
 
-# 3. Transparent AI & Continuous Learning
-mise run examples:diagnostics_mode:run
-mise run examples:continuous_learning:run
-mise run examples:machine_unlearning:run
+# you may need to download data before you can run.
 
-# 4. Large-Scale Benchmarks
+# Example of scripts you can run. Other examples are similar.
 mise run examples:amazon_reviews:download_data
 mise run examples:amazon_reviews:run
-
-mise run examples:dbpedia:download_data
-mise run examples:dbpedia:run
+# 2. Semantic Generalization & Continual Learning
+mise run examples:sparse_embeddings:run
+mise run examples:continual_learning:run
+mise run examples:melbourne_cup:run
+mise run examples:team_composition:run
 ```
 
----
+## Installing 
 
-## Installation
+```bash
+pip install neuronguard
+```
+
+[https://pypi.org/project/neuronguard/](https://pypi.org/project/neuronguard/)
+
+## Building Locally
 
 This project uses [mise](https://mise.jdx.dev/) and [uv](https://github.com/astral-sh/uv) to manage toolchains.
 

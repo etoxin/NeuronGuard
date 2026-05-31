@@ -1,0 +1,7 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks."examples:continual_learning:run"]
+description = "Run the Continual Learning Example"
+run = "uv run --no-project python main.py"

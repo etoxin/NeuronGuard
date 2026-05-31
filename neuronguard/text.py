@@ -114,7 +114,14 @@ class TextClassifier:
         
         # Unigram indices (lower half of space if bigrams enabled)
         unigram_space = self.vocab_size // 2 if self.use_hashed_bigrams else self.vocab_size
-        indices = [self._vocab_map[t] for t in tokens if t in self._vocab_map and self._vocab_map[t] < unigram_space]
+        indices = []
+        for t in tokens:
+            if t in self._vocab_map:
+                val = self._vocab_map[t]
+                if isinstance(val, list):
+                    indices.extend([v for v in val if v < unigram_space])
+                elif val < unigram_space:
+                    indices.append(val)
         
         # Hashed bigram indices (upper half of space)
         if self.use_hashed_bigrams and len(tokens) > 1:
@@ -368,24 +375,32 @@ class TextClassifier:
         """
         self._ensure_field()
         tokens = self._tokenize(text)
-        
         explanation = []
-        for token in tokens:
-            if token in self._vocab_map:
-                idx = self._vocab_map[token]
-                # Only explain unigrams for simplicity, but could do bigrams if we reconstruct them
-                if idx < (self.vocab_size // 2 if getattr(self, 'use_hashed_bigrams', False) else self.vocab_size):
-                    synapses = self._field.get_neuron_synapses(idx)
-                    contribs = {}
-                    for target_id, weight in synapses:
-                        name = self.class_names[target_id] if self.class_names and target_id < len(self.class_names) else str(target_id)
-                        contribs[name] = weight
-                    
-                    if contribs:
-                        explanation.append({
-                            "word": token,
-                            "contributions": contribs
-                        })
+        for word in tokens:
+            if word in self._vocab_map:
+                val = self._vocab_map[word]
+                contribs = {}
+                
+                # Handle SDRs
+                if isinstance(val, list):
+                    for idx in val:
+                        synapses = self._field.get_neuron_synapses(idx)
+                        for motor_id, weight in synapses:
+                            if weight > 0:
+                                label_str = self.class_names[motor_id] if self.class_names and motor_id < len(self.class_names) else str(motor_id)
+                                contribs[label_str] = contribs.get(label_str, 0) + weight
+                else:
+                    synapses = self._field.get_neuron_synapses(val)
+                    for motor_id, weight in synapses:
+                        if weight > 0:
+                            label_str = self.class_names[motor_id] if self.class_names and motor_id < len(self.class_names) else str(motor_id)
+                            contribs[label_str] = weight
+                            
+                if contribs:
+                    explanation.append({
+                        "word": word,
+                        "contributions": contribs
+                    })
         
         prediction_idx = self.predict(text)
         prediction_name = self.predict_name(text)
@@ -409,21 +424,31 @@ class TextClassifier:
             A list of (word, weight) tuples.
         """
         self._ensure_field()
-        features = []
-        
-        for word, idx in self._vocab_map.items():
-            # Skip hashed bigrams
-            if getattr(self, 'use_hashed_bigrams', False) and idx >= self.vocab_size // 2:
-                continue
-                
-            synapses = self._field.get_neuron_synapses(idx)
-            for target_id, weight in synapses:
-                if target_id == class_idx:
-                    features.append((word, weight))
-                    break
+        if not self._is_fitted:
+            return []
+            
+        class_id = class_idx
+        word_scores = []
+        for word, val in self._vocab_map.items():
+            score = 0
+            # Handle SDRs (lists of indices)
+            if isinstance(val, list):
+                for idx in val:
+                    synapses = self._field.get_neuron_synapses(idx)
+                    for target_motor, weight in synapses:
+                        if target_motor == class_id:
+                            score += weight
+            else:
+                synapses = self._field.get_neuron_synapses(val)
+                for target_motor, weight in synapses:
+                    if target_motor == class_id:
+                        score += weight
+                        
+            if score > 0:
+                word_scores.append((word, score))
                     
-        features.sort(key=lambda x: x[1], reverse=True)
-        return features[:top_k]
+        word_scores.sort(key=lambda x: x[1], reverse=True)
+        return word_scores[:top_k]
         
     def print_explanation(self, text):
         """Out-of-the-box diagnostic print for prediction explanations."""
