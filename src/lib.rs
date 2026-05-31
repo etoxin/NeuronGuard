@@ -613,9 +613,7 @@ impl PyNeuronGuardTrainerField {
     }
 
     fn save_weights_to_b64(&self, path: String) -> PyResult<()> {
-        let bytes = self.trainer.serialize_weights();
-        let b64_str = base64_encode(&bytes);
-        std::fs::write(path, b64_str)?;
+        self.trainer.save_weights_to_b64(&path)?;
         Ok(())
     }
 

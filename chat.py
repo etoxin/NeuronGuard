@@ -22,12 +22,12 @@ from neuronguard import NeuronGuardTokenizer
 
 
 def chat():
-    print("======================================================================")
-    print("🧠 Welcome to the NeuronGuard-Gen (v1.0-Alpha) Interactive Chat!")
-    print("======================================================================")
-
     vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
     temperature = float(os.environ.get("TEMPERATURE", 0.6))
+
+    print("======================================================================")
+    print(f"🧠 Scaling Network Allocation Layer: Horizontal Depth = {vocab_size} Rows")
+    print("======================================================================")
 
     vocab_file = "wikipedia_vocab.txt"
     weights_file = "wikipedia_weights.txt"

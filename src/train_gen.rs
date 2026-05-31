@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::gen_memory::HighDensityNeuromorphicLine;
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// NeuronGuardTrainerField
@@ -165,35 +166,79 @@ impl NeuronGuardTrainerField {
         bytes
     }
 
-    /// Loads and deserializes the synaptic matrix from a base64-encoded text file.
-    pub fn load_weights_from_b64(&mut self, path: &str) -> std::io::Result<()> {
-        let b64_str = std::fs::read_to_string(path)?;
-        let bytes = base64_decode(&b64_str);
+    /// Serializes and writes the synaptic matrix directly to a base64-encoded text file in chunks.
+    /// This prevents memory spikes and string buffer overflows on large matrices (up to 2 GB).
+    pub fn save_weights_to_b64(&self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
 
-        // Strict file size validation to prevent silent loading failures of stale/mismatched weight cards
-        let expected_size = self.sensory_count * 112;
-        if bytes.len() != expected_size {
+        // Buffer to hold raw bytes for a chunk of lines
+        let chunk_size = 1002; // 1,002 lines * 112 bytes = 112,224 bytes (multiple of 3 for perfect base64 alignment)
+        let mut chunk_bytes = Vec::with_capacity(chunk_size * 112);
+
+        for line in &self.lines {
+            for &val in &line.synapses_weights {
+                chunk_bytes.extend_from_slice(&val.to_le_bytes());
+            }
+
+            if chunk_bytes.len() >= chunk_size * 112 {
+                let b64_str = base64_encode(&chunk_bytes);
+                file.write_all(b64_str.as_bytes())?;
+                chunk_bytes.clear();
+            }
+        }
+
+        if !chunk_bytes.is_empty() {
+            let b64_str = base64_encode(&chunk_bytes);
+            file.write_all(b64_str.as_bytes())?;
+        }
+
+        Ok(())
+    }
+
+    /// Loads and deserializes the synaptic matrix from a base64-encoded text file in chunks.
+    /// This prevents memory spikes and string buffer overflows on large matrices (up to 2 GB).
+    pub fn load_weights_from_b64(&mut self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::open(path)?;
+
+        // We read the file in chunks of 149,632 base64 characters (which decodes to exactly 1,002 lines)
+        let b64_chunk_size = 149_632;
+        let mut b64_buffer = vec![0u8; b64_chunk_size];
+
+        let mut line_idx = 0;
+        loop {
+            let bytes_read = read_exact_or_eof(&mut file, &mut b64_buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+
+            let b64_str = std::str::from_utf8(&b64_buffer[..bytes_read])
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+            let bytes = base64_decode(b64_str);
+
+            let mut offset = 0;
+            while offset + 112 <= bytes.len() && line_idx < self.lines.len() {
+                let line = &mut self.lines[line_idx];
+                for j in 0..56 {
+                    line.synapses_weights[j] =
+                        i16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
+                    offset += 2;
+                }
+                line_idx += 1;
+            }
+        }
+
+        if line_idx != self.lines.len() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
-                    "Synaptic weights file size mismatch: expected {} bytes, got {} bytes",
-                    expected_size,
-                    bytes.len()
+                    "Synaptic weights file size mismatch: expected {} lines, loaded {} lines",
+                    self.lines.len(),
+                    line_idx
                 ),
             ));
         }
 
-        let mut offset = 0;
-        for line in &mut self.lines {
-            if offset + 112 > bytes.len() {
-                break;
-            }
-            for j in 0..56 {
-                line.synapses_weights[j] =
-                    i16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
-                offset += 2;
-            }
-        }
         Ok(())
     }
 
@@ -233,6 +278,19 @@ impl NeuronGuardTrainerField {
             .map(|pot| pot.load(Ordering::Relaxed))
             .collect()
     }
+}
+
+/// Helper function to read exactly `buf.len()` bytes or stop at EOF.
+fn read_exact_or_eof(file: &mut std::fs::File, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut total_read = 0;
+    while total_read < buf.len() {
+        let bytes_read = file.read(&mut buf[total_read..])?;
+        if bytes_read == 0 {
+            break;
+        }
+        total_read += bytes_read;
+    }
+    Ok(total_read)
 }
 
 /// High-performance, zero-dependency Base64 encoder.

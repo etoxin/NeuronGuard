@@ -3,11 +3,18 @@ rust = "latest"
 uv = "latest"
 python = "3.12"
 
-[vars]
-train_books = "200"
-vocab_size = "50000"
-temperature = "0.7"
-book_urls = ""
+[env]
+TEMPERATURE = "0.6"
+
+# Toggle configuration tiers by commenting out/in targets
+# Tier 1 (Default Edge Baseline - ~6.40 MB Footprint)
+VOCAB_SIZE = "8000000"
+
+# Tier 2 (High Capacity 1 GB Scale - ~1.024 GB Footprint)
+# VOCAB_SIZE = "8000000"
+
+# Tier 3 (Massive Narrative 2 GB Scale - ~2.048 GB Footprint)
+# VOCAB_SIZE = "16000000"
 
 [tasks.build]
 description = "Build the Rust library and binaries"
@@ -29,15 +36,13 @@ run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 uv run --no-project maturin develop
 description = "Run the Python verification script"
 run = "uv run --no-project python verify.py"
 
-[tasks.train-gen]
-description = "Run the generative SNN-LM training pipeline on Project Gutenberg books"
+[tasks.train]
+description = "Stream Project Gutenberg corpus to build model weights matching configuration limits"
 run = "uv run --no-project python train_stream_harvester.py"
-env = { TRAIN_BOOKS = "{{vars.train_books}}", VOCAB_SIZE = "{{vars.vocab_size}}", BOOK_URLS = "{{vars.book_urls}}" }
 
 [tasks.chat]
-description = "Start the interactive chat session with the SNN-LM"
+description = "Boot the TPI neuromorphic active chat interface"
 run = "uv run --no-project python chat.py"
-env = { VOCAB_SIZE = "{{vars.vocab_size}}", TEMPERATURE = "{{vars.temperature}}" }
 
 [tasks.clean_models]
 description = "Clean up old pre-trained models, vocab files, and book caches"

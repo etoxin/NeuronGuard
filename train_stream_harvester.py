@@ -26,7 +26,7 @@ from neuronguard import NeuronGuardTokenizer
 
 def harvest_and_train_dynamic(start_id=1, max_books=50, vocab_size=50000):
     print("======================================================================")
-    print("🧠 NeuronGuard-Gen Line-Rate Dynamic Stream-Training Infrastructure")
+    print(f"🧠 Scaling Network Allocation Layer: Horizontal Depth = {vocab_size} Rows")
     print("======================================================================")
     print(
         f"Targeting {max_books} successful book runs starting from Gutenberg ID {start_id}..."
