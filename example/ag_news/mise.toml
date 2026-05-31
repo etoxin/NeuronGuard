@@ -2,11 +2,11 @@
 python = "3.12"
 uv = "latest"
 
-[tasks.run]
+[tasks."examples:ag_news:run"]
 description = "Run the AG News Python classification PoC"
 run = "uv run --no-project python main.py"
 
-[tasks.download_data]
+[tasks."examples:ag_news:download_data"]
 description = "Download AG News dataset"
 run = """
 mkdir -p data

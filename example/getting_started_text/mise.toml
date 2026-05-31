@@ -2,6 +2,6 @@
 python = "3.12"
 uv = "latest"
 
-[tasks.run]
+[tasks."examples:getting_started_text:run"]
 description = "Run the NeuronGuard Text Classification Getting Started Guide"
 run = "uv run --no-project python main.py"
