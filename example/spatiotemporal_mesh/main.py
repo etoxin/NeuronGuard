@@ -11,17 +11,17 @@ This example introduces the advanced capabilities of the Permanent Spatiotempora
 
 import time
 
-import neuronguard as ng
+from neuronguard import InsectoidGait
 
 
-def print_gait_state(step, phases, velocities, active_nodes, intensities):
-    print(f"[Step {step:02d}]")
-    print(f"  Leg Phases:     " + " ".join(f"{p:.2f}" for p in phases))
-    print(f"  Leg Velocities: " + " ".join(f"{v:.2f}" for v in velocities))
-    print(f"  Active Nodes:   {active_nodes}")
+def print_gait_state(state):
+    print(f"[Step {state.step:02d}]")
+    print(f"  Leg Phases:     " + " ".join(f"{p:.2f}" for p in state.phases))
+    print(f"  Leg Velocities: " + " ".join(f"{v:.2f}" for v in state.velocities))
+    print(f"  Active Nodes:   {state.active_nodes}")
     print(
         f"  Loop Intensities (Legs 0-5): "
-        + " ".join(f"L{i}:{intensities.get(i, 0)}" for i in range(6))
+        + " ".join(f"L{i}:{state.loop_intensities.get(i, 0)}" for i in range(6))
     )
     print("-" * 80)
 
@@ -37,7 +37,7 @@ def main():
     print("1. Initializing Insectoid Walking Gait Simulation...")
     # This automatically instantiates a PermanentSpatiotemporalEnsembleMesh
     # and configures the rhythmic CPG feedback loops: 0 -> 2 -> 4 -> 1 -> 3 -> 5 -> 0
-    sim = ng.PyInsectoidSimulation()
+    sim = InsectoidGait()
     print("   Simulation and CPG feedback loops initialized successfully!\n")
 
     # -------------------------------------------------------------------------
@@ -45,13 +45,9 @@ def main():
     # -------------------------------------------------------------------------
     print("2. Running simulation to establish a steady walking gait...")
     print("-" * 80)
-    for step in range(1, 11):
-        sim.step(training_mode=False, correct_target=None, decay_factor=0.90)
-        phases = sim.get_phases()
-        velocities = sim.get_velocities()
-        active_nodes = sim.get_active_nodes()
-        intensities = sim.get_loop_intensities()
-        print_gait_state(step, phases, velocities, active_nodes, intensities)
+    for _ in range(10):
+        state = sim.step(training_mode=False, correct_target=None, decay_factor=0.90)
+        print_gait_state(state)
         time.sleep(0.05)
 
     # -------------------------------------------------------------------------
@@ -62,25 +58,21 @@ def main():
         "   Triggering transactional structural re-patching (Guard/Lease) for anomalous token 99..."
     )
 
-    # We manually step the simulation with training_mode=True and correct_target=0
-    # to instantly re-patch the anomalous token 99's forward target to Leg 0.
-    # We measure the time taken to verify it completes within a single animation frame (16.6ms).
+    # We perturb leg 0 and measure the time taken to verify
+    # the re-patch completes within a single animation frame (16.6ms).
     start_time = time.time()
 
-    # We simulate the perturbation by stepping with training_mode=True and correct_target=0
-    sim.step(training_mode=True, correct_target=0, decay_factor=0.90)
+    mutations = sim.perturb(target_leg=0, decay_factor=0.90)
 
     elapsed_ms = (time.time() - start_time) * 1000.0
     print(
         f"   ➔ Transactional re-patch completed in {elapsed_ms:.4f} ms! (Target: < 16.6 ms)"
     )
 
-    # Retrieve structural mutations emitted by the Guard/Lease pattern
-    mutations = sim.get_structural_mutations()
+    # Display structural mutations emitted by the Guard/Lease pattern
     for mut in mutations:
-        token_id, evicted, new_target, ts = mut
         print(
-            f"   [MUTATION EVENT] Token {token_id}: Evicted target {evicted} ➔ Patched to {new_target} (Timestamp: {ts} us)"
+            f"   [MUTATION EVENT] Token {mut.token_id}: Evicted target {mut.evicted_target} ➔ Patched to {mut.new_target} (Timestamp: {mut.timestamp_us} us)"
         )
 
     # -------------------------------------------------------------------------
@@ -88,13 +80,9 @@ def main():
     # -------------------------------------------------------------------------
     print("\n4. Continuing simulation to demonstrate self-stabilization...")
     print("-" * 80)
-    for step in range(11, 16):
-        sim.step(training_mode=False, correct_target=None, decay_factor=0.90)
-        phases = sim.get_phases()
-        velocities = sim.get_velocities()
-        active_nodes = sim.get_active_nodes()
-        intensities = sim.get_loop_intensities()
-        print_gait_state(step, phases, velocities, active_nodes, intensities)
+    for _ in range(5):
+        state = sim.step(training_mode=False, correct_target=None, decay_factor=0.90)
+        print_gait_state(state)
         time.sleep(0.05)
 
     print("====================================================================")

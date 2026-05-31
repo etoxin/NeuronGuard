@@ -1,16 +1,19 @@
 """
 NeuronGuard: Getting Started Guide
 
-This example introduces the core concepts of NeuronGuard:
-1. Initializing a NeuronGuardField (a neuromorphic cortex).
-2. Configuring sensory-to-motor connections.
-3. Running real-time inference (Run Mode) by processing sensory stimuli streams.
-4. Performing supervised learning (Trainer Mode) using the Guard/Lease pattern.
-5. Saving and loading model weights instantly.
+This example introduces the core concepts of NeuronGuard through its Python SDK:
+1. TextClassifier: High-level API for text classification.
+2. TabularClassifier: High-level API for numerical/tabular data classification.
+3. InsectoidGait: High-level API for spatiotemporal ensemble meshes.
+4. Raw API: Direct access to the low-level Rust bindings.
 """
 
 import os
+import shutil
+import tempfile
+import time
 
+from neuronguard import TextClassifier, TabularClassifier, InsectoidGait
 import neuronguard as ng
 
 
@@ -19,110 +22,102 @@ def main():
     print("🧠 Welcome to NeuronGuard: Getting Started Guide 🧠")
     print("====================================================================\n")
 
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    model_dir = os.path.join(script_dir, "temp_model_dir")
+    
     # -------------------------------------------------------------------------
-    # STEP 1: Initialize the Neuromorphic Cortex
+    # SECTION 1: TextClassifier
     # -------------------------------------------------------------------------
-    # We define a small cortex with 10 sensory neurons and 3 motor neurons.
-    # Sensory neurons represent incoming stimuli (e.g., words, pixels, sensor inputs).
-    # Motor neurons represent output categories or actions (e.g., classifications).
-    num_sensory = 10
-    num_motor = 3
+    print("--- 1. Text Classification ---")
+    print("The TextClassifier handles tokenization, discriminative vocabulary building,")
+    print("and multi-epoch training automatically.\n")
 
-    print(
-        f"1. Initializing cortex with {num_sensory} sensory and {num_motor} motor neurons..."
-    )
-    cortex = ng.NeuronGuardField(sensory_count=num_sensory, motor_count=num_motor)
-    print("   Cortex allocated successfully in CPU L1/L2 cache!\n")
+    records = [
+        (0, 'sports football soccer match game player goal'),
+        (0, 'sports basketball court score dunk rebound'),
+        (1, 'technology computer software hardware silicon'),
+        (1, 'technology processor chip memory circuit'),
+        (2, 'science physics biology chemistry atom'),
+        (2, 'science galaxy universe planet star'),
+    ]
 
-    # -------------------------------------------------------------------------
-    # STEP 2: Configure Initial Connections (Run Mode)
-    # -------------------------------------------------------------------------
-    # Let's manually connect some sensory neurons to motor neurons.
-    # Sensory Neuron 0 targets Motor Neuron 0 with a weight of 10.
-    # Sensory Neuron 1 targets Motor Neuron 1 with a weight of 15.
-    print("2. Configuring initial sensory-to-motor connections...")
-    cortex.train_stream(
-        sensory_tokens=[0], correct_motor_id=0, amplify_delta=10, suppress_delta=0
-    )
-    cortex.train_stream(
-        sensory_tokens=[1], correct_motor_id=1, amplify_delta=15, suppress_delta=0
-    )
-    print("   Initial connections configured.\n")
+    text_clf = TextClassifier(num_classes=3, vocab_size=20, class_names=['Sports', 'Tech', 'Science'])
+    text_clf.fit_records(records, epochs=5)
 
-    # -------------------------------------------------------------------------
-    # STEP 3: Run Real-Time Inference (Run Mode)
-    # -------------------------------------------------------------------------
-    # We present a stream of active sensory stimuli to the cortex.
-    # The cortex drops the Python GIL and processes the stream in parallel
-    # across background worker threads, accumulating potentials on the motor neurons.
-    print("3. Running real-time inference...")
-    active_stimuli = [0, 1]  # Stimuli 0 and 1 are active simultaneously
+    test_text = "football soccer match"
+    print(f"Input: '{test_text}'")
+    print(f"Prediction: {text_clf.predict_name(test_text)}")
+    print(f"Raw Scores: {text_clf.predict_scores(test_text)}\n")
 
-    # Reset potentials before presenting the new stream
-    cortex.reset_potentials()
-
-    # Process the stream (training_mode=False)
-    # This returns the index of the motor neuron with the highest accumulated potential.
-    winning_motor_id = cortex.process_stream(active_stimuli, training_mode=False)
-    potentials = cortex.get_potentials()
-
-    print(f"   Active Stimuli: {active_stimuli}")
-    print(f"   Motor Potentials: {potentials}")
-    print(
-        f"   ➔ Winner: Motor Neuron {winning_motor_id} (Expected: 1, because weight 15 > 10)\n"
-    )
+    print("Saving and loading models is instant and pointerless...")
+    text_clf.save(model_dir)
+    loaded_clf = TextClassifier.load(model_dir)
+    print(f"Loaded model prediction for '{test_text}': {loaded_clf.predict_name(test_text)}\n")
 
     # -------------------------------------------------------------------------
-    # STEP 4: Supervised Learning (Trainer Mode)
+    # SECTION 2: TabularClassifier
     # -------------------------------------------------------------------------
-    # Let's train the cortex to associate Sensory Neuron 2 with Motor Neuron 2.
-    # We use `train_stream` which implements the Guard/Lease pattern:
-    # - Amplifies the correct pathway.
-    # - Suppresses incorrect/competing pathways.
-    print("4. Training the cortex (Trainer Mode)...")
-    print("   Associating Sensory Neuron 2 with Motor Neuron 2...")
+    print("--- 2. Tabular Classification ---")
+    print("The TabularClassifier automatically buckets continuous features and handles")
+    print("class imbalances via weighting.\n")
 
-    # Train Sensory Neuron 2 to target Motor Neuron 2
-    cortex.train_stream(
-        sensory_tokens=[2], correct_motor_id=2, amplify_delta=20, suppress_delta=5
-    )
+    tab_clf = TabularClassifier(num_classes=2, num_features=2, buckets_per_feature=5)
+    train_data = [
+        (1.0, 2.0, 0),
+        (1.1, 2.1, 0),
+        (8.0, 9.0, 1),
+        (8.1, 9.1, 1),
+    ]
+    
+    # Fit with features at indices 0,1 and label at index 2
+    tab_clf.fit(train_data, feature_indices=[0, 1], label_index=2, epochs=5)
 
-    # Let's verify the training worked!
-    cortex.reset_potentials()
-    winning_motor_id = cortex.process_stream([2], training_mode=False)
-    potentials = cortex.get_potentials()
-    print("   Active Stimuli: [2]")
-    print(f"   Motor Potentials: {potentials}")
-    print(f"   ➔ Winner: Motor Neuron {winning_motor_id} (Expected: 2)\n")
+    test_features = [1.0, 2.0]
+    pred = tab_clf.predict(test_features)
+    print(f"Input features: {test_features}")
+    print(f"Prediction: Class {pred}")
+    print(f"Raw Scores: {tab_clf.predict_scores(test_features)}\n")
 
     # -------------------------------------------------------------------------
-    # STEP 5: Save and Load Model Weights
+    # SECTION 3: InsectoidGait (Spatiotemporal Mesh)
     # -------------------------------------------------------------------------
-    # NeuronGuard supports instant, pointerless serialization of model weights.
-    print("5. Saving and loading model weights...")
-    weights_path = "getting_started_weights.bin"
+    print("--- 3. Insectoid Gait (Spatiotemporal Mesh) ---")
+    print("A high-level wrapper for exploring CPG feedback loops and topological plasticity.\n")
 
-    # Save weights to disk
-    cortex.save_weights(weights_path)
-    print(f"   Weights saved successfully to '{weights_path}'")
+    sim = InsectoidGait()
+    
+    print("Running 5 steps to establish a gait...")
+    for _ in range(5):
+        state = sim.step()
+        print(f"Step {state.step:02d} | Phases: {['{:.2f}'.format(p) for p in state.phases]}")
+        time.sleep(0.05)
 
-    # Create a brand new, empty cortex
-    new_cortex = ng.NeuronGuardField(sensory_count=num_sensory, motor_count=num_motor)
+    print("\nInjecting perturbation (slip/push) on leg 0...")
+    mutations = sim.perturb(target_leg=0)
+    for m in mutations:
+        print(f"Mutation: Token {m.token_id} re-patched {m.evicted_target} -> {m.new_target} (at {m.timestamp_us}us)")
+    print()
 
-    # Load the saved weights into the new cortex
-    new_cortex.load_weights(weights_path)
-    print("   Weights loaded successfully into a new cortex in < 1ms!")
+    # -------------------------------------------------------------------------
+    # SECTION 4: Raw API (Rust Bindings)
+    # -------------------------------------------------------------------------
+    print("--- 4. Raw API (Rust Bindings) ---")
+    print("The high-level SDK is built on top of the raw Rust bindings, which remain")
+    print("available for advanced use cases.\n")
 
-    # Verify the new cortex has the same behavior
-    new_cortex.reset_potentials()
-    winning_motor_id = new_cortex.process_stream([2], training_mode=False)
-    print(f"   ➔ Winner in New Cortex: Motor Neuron {winning_motor_id} (Expected: 2)\n")
+    field = ng.NeuronGuardField(sensory_count=10, motor_count=3)
+    field.train_stream([0], 0, 10, 0)
+    field.train_stream([1], 1, 15, 0)
+    
+    field.reset_potentials()
+    winner = field.process_stream([0, 1], training_mode=False)
+    
+    print(f"Raw NeuronGuardField winner for stimuli [0, 1]: {winner} (Expected: 1)")
 
-    # Clean up the weights file
-    if os.path.exists(weights_path):
-        os.remove(weights_path)
+    # Cleanup
+    shutil.rmtree(model_dir, ignore_errors=True)
 
-    print("====================================================================")
+    print("\n====================================================================")
     print("🎉 Congratulations! You have completed the Getting Started Guide! 🎉")
     print("====================================================================")
 

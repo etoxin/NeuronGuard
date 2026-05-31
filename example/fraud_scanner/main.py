@@ -15,7 +15,7 @@ import csv
 import os
 import time
 
-import neuronguard as ng
+from neuronguard import TabularClassifier
 
 
 def main():
@@ -73,100 +73,52 @@ def main():
     )
 
     # -------------------------------------------------------------------------
-    # STEP 2: Compute Feature Boundaries (Min/Max)
+    # STEP 2: Initialize the TabularClassifier
     # -------------------------------------------------------------------------
-    print("2. Computing feature boundaries from training set...")
-    # Selected features: V10 (0), V12 (1), V14 (2), V17 (3), Amount (4)
-    features_min = [float("inf")] * 5
-    features_max = [float("-inf")] * 5
-
-    for r in train_records:
-        for i in range(5):
-            val = r[i]
-            if val < features_min[i]:
-                features_min[i] = val
-            if val > features_max[i]:
-                features_max[i] = val
+    # 5 features (V10, V12, V14, V17, Amount), each bucketed into 10 buckets.
+    # 2 classes: 0 = Legitimate, 1 = Fraudulent.
+    print("2. Initializing TabularClassifier...")
+    classifier = TabularClassifier(
+        num_classes=2,
+        num_features=5,
+        buckets_per_feature=10,
+        amplify_delta=15,
+        suppress_delta=5,
+    )
 
     # -------------------------------------------------------------------------
-    # STEP 3: Initialize and Configure the Cortex
+    # STEP 3: Train on Real-World Data
     # -------------------------------------------------------------------------
-    # We have 5 features, each bucketed into 10 buckets.
-    # Total sensory neurons = 5 * 10 = 50.
-    # Motor neurons = 2 (0 = Legitimate, 1 = Fraudulent).
-    num_sensory = 50
-    num_motor = 2
-
-    print("3. Initializing NeuronGuard cortex...")
-    field = ng.NeuronGuardField(sensory_count=num_sensory, motor_count=num_motor)
-
-    def get_tokens(record):
-        tokens = []
-        for i in range(5):
-            val = record[i]
-            min_val = features_min[i]
-            max_val = features_max[i]
-            # Map to bucket 0..9
-            bucket = 0
-            if max_val > min_val:
-                if val <= min_val:
-                    bucket = 0
-                elif val >= max_val:
-                    bucket = 9
-                else:
-                    bucket = int((val - min_val) / (max_val - min_val) * 10)
-            tokens.append(i * 10 + bucket)
-        return tokens
-
-    # Configure initial baseline: All features start as legitimate (expert 0)
-    for i in range(num_sensory):
-        field.train_stream([i], correct_motor_id=0, amplify_delta=10, suppress_delta=0)
-
-    # -------------------------------------------------------------------------
-    # STEP 4: Train on Real-World Data (Trainer Mode)
-    # -------------------------------------------------------------------------
-    print("4. Training the cortex on real-world transactions...")
+    # Records are tuples: (V10, V12, V14, V17, Amount, Label)
+    # Features are at indices 0-4, label is at index 5.
+    # class_weights={1: 100} oversamples fraud by 100x to handle extreme
+    # class imbalance (99.9% legitimate).
+    print("3. Training on real-world transactions...")
     start_time = time.time()
 
-    for r in train_records:
-        tokens = get_tokens(r)
-        label = r[5]
-        # Train the active tokens to target the correct label (0 or 1)
-        # If fraudulent, we amplify with a high delta to override the legitimate baseline.
-        # We oversample fraud cases to handle the extreme class imbalance (99.9% legitimate).
-        if label == 1:
-            for _ in range(100):
-                field.train_stream(
-                    tokens, correct_motor_id=1, amplify_delta=30, suppress_delta=2
-                )
-        else:
-            field.train_stream(
-                tokens, correct_motor_id=0, amplify_delta=2, suppress_delta=10
-            )
+    classifier.fit(
+        records=train_records,
+        feature_indices=[0, 1, 2, 3, 4],
+        label_index=5,
+        epochs=1,
+        class_weights={1: 100},
+    )
 
     duration = time.time() - start_time
     print(f"   Training completed in {duration:.4f}s!\n")
 
     # -------------------------------------------------------------------------
-    # STEP 5: Evaluate Accuracy on Test Set (Run Mode)
+    # STEP 4: Evaluate Accuracy on Test Set
     # -------------------------------------------------------------------------
-    print("5. Evaluating accuracy on test set...")
+    print("4. Evaluating accuracy on test set...")
     correct_predictions = 0
     confusion_matrix = [[0, 0], [0, 0]]  # [Actual][Predicted]
 
     for r in test_records:
-        tokens = get_tokens(r)
+        features = [r[0], r[1], r[2], r[3], r[4]]
         actual_label = r[5]
 
-        # Reset potentials before presenting the transaction
-        field.reset_potentials()
-
-        # Process the stream
-        field.process_stream(tokens, training_mode=False)
-
-        # Get the winning expert
-        potentials = field.get_potentials()
-        predicted_label = potentials.index(max(potentials))
+        predicted_label = classifier.predict(features)
 
         confusion_matrix[actual_label][predicted_label] += 1
         if predicted_label == actual_label:
