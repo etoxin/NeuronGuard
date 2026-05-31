@@ -59,6 +59,26 @@ class NeuronGuardTokenizer:
         """
         return [tid for tid in self.enc.encode(text) if tid < self.vocab_size]
 
+    def encode_content(self, text):
+        """
+        Encodes text for *training*, dropping tokens that are pure corpus noise rather than
+        language: standalone numbers (Gutenberg page/chapter/footnote markers like "96426013599"
+        or "8") and isolated punctuation runs. Filtering these at ingestion keeps the bigram graph
+        free of junk successors that otherwise surface verbatim during generation.
+        """
+        ids = self.encode(text)
+        kept = []
+        for tid in ids:
+            piece = self.inverse_vocab.get(tid)
+            if piece is None:
+                piece = self.enc.decode([tid])
+            stripped = piece.strip()
+            # Drop tokens whose visible content is entirely digits (page/footnote numbers).
+            if stripped and all(ch.isdigit() for ch in stripped):
+                continue
+            kept.append(tid)
+        return kept
+
     def decode(self, token_ids):
         """
         Decodes a list of Token IDs back into a string using tiktoken's native decoder.

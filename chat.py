@@ -20,9 +20,13 @@ import neuronguard as ng
 import numpy as np
 from neuronguard import NeuronGuardTokenizer
 
+# Synaptic targets are stored as u16, so the field can address at most 65,536 neurons.
+# Requesting more only allocates unreachable dead memory, so we clamp here to match the Rust core.
+MAX_ADDRESSABLE_NEURONS = 65536
+
 
 def chat():
-    vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
+    vocab_size = min(int(os.environ.get("VOCAB_SIZE", 50257)), MAX_ADDRESSABLE_NEURONS)
     temperature = float(os.environ.get("TEMPERATURE", 0.6))
     top_k = int(os.environ.get("TOP_K", 40))
 

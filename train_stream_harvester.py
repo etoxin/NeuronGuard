@@ -23,8 +23,13 @@ import neuronguard as ng
 import requests
 from neuronguard import NeuronGuardTokenizer
 
+# Synaptic targets are stored as u16, so the field can address at most 65,536 neurons.
+# Requesting more only allocates unreachable dead memory, so we clamp here to match the Rust core.
+MAX_ADDRESSABLE_NEURONS = 65536
 
-def harvest_and_train_dynamic(start_id=1, max_books=50, vocab_size=50000):
+
+def harvest_and_train_dynamic(start_id=1, max_books=50, vocab_size=50257):
+    vocab_size = min(vocab_size, MAX_ADDRESSABLE_NEURONS)
     print("======================================================================")
     print(f"🧠 Scaling Network Allocation Layer: Horizontal Depth = {vocab_size} Rows")
     print("======================================================================")
@@ -106,7 +111,7 @@ def harvest_and_train_dynamic(start_id=1, max_books=50, vocab_size=50000):
 
                         if in_story_body and clean_line:
                             proc_start = time.perf_counter()
-                            token_ids = tokenizer.encode(clean_line)
+                            token_ids = tokenizer.encode_content(clean_line)
                             if token_ids:
                                 trainer_field.train_stream_step_sync(token_ids)
                                 delta_t = time.perf_counter() - proc_start
@@ -179,7 +184,7 @@ def harvest_and_train_dynamic(start_id=1, max_books=50, vocab_size=50000):
 
                         if in_story_body and clean_line:
                             proc_start = time.perf_counter()
-                            token_ids = tokenizer.encode(clean_line)
+                            token_ids = tokenizer.encode_content(clean_line)
                             if token_ids:
                                 trainer_field.train_stream_step_sync(token_ids)
                                 delta_t = time.perf_counter() - proc_start

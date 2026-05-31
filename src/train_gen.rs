@@ -33,9 +33,35 @@ pub struct NeuronGuardTrainerField {
     pub active_indices: Vec<u32>,         // Added to track active potentials in real-time
 }
 
+/// Hard ceiling on addressable neurons. `target_ids` is a `u16`, so any successor token must fit
+/// in [0, 65535]. Allocating beyond this is pure waste: those neurons can never be the target of
+/// a learned connection. We clamp to this bound to prevent multi-gigabyte allocations of dead,
+/// unreachable memory from mis-configured vocab sizes.
+const MAX_ADDRESSABLE_NEURONS: usize = u16::MAX as usize + 1; // 65,536
+
 impl NeuronGuardTrainerField {
     /// Allocates a flat, contiguous block of memory for sensory and motor neurons.
+    ///
+    /// `sensory_count` / `motor_count` are clamped to `MAX_ADDRESSABLE_NEURONS` because synaptic
+    /// targets are stored as `u16`. Requesting more (e.g. the old 1M/8M "tiers") only produced
+    /// empty, unreachable neurons and inflated RSS without adding a single usable connection.
     pub fn new(sensory_count: usize, motor_count: usize) -> Self {
+        let requested_sensory = sensory_count;
+        let requested_motor = motor_count;
+        let sensory_count = sensory_count.min(MAX_ADDRESSABLE_NEURONS);
+        let motor_count = motor_count.min(MAX_ADDRESSABLE_NEURONS);
+        if requested_sensory > sensory_count || requested_motor > motor_count {
+            eprintln!(
+                "\u{26a0}\u{fe0f}  NeuronGuard: requested vocab ({} sensory / {} motor) exceeds the \
+                 u16 addressable limit of {}. Clamping. Token IDs above {} cannot be stored as \
+                 synaptic targets, so the extra neurons would be unreachable dead memory.",
+                requested_sensory,
+                requested_motor,
+                MAX_ADDRESSABLE_NEURONS,
+                MAX_ADDRESSABLE_NEURONS - 1
+            );
+        }
+
         let mut lines = Vec::with_capacity(sensory_count);
         for _ in 0..sensory_count {
             lines.push(HighDensityNeuromorphicLine::new(15));

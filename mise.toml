@@ -9,15 +9,12 @@ TRAIN_BOOKS = "500"
 START_ID = "1"
 BOOK_URLS = ""
 
-# Toggle configuration tiers by commenting out/in targets
-# Tier 1 (Default Edge Baseline - ~6.40 MB Footprint)
-VOCAB_SIZE = "250000"
-
-# Tier 2 (High Capacity 1 GB Scale - ~1.024 GB Footprint)
-# VOCAB_SIZE = "8000000"
-
-# Tier 3 (Massive Narrative 2 GB Scale - ~2.048 GB Footprint)
-# VOCAB_SIZE = "16000000"
+# The backing tokenizer is GPT-2, which has exactly 50,257 tokens and stores target IDs as u16.
+# Allocating beyond the real vocabulary only creates unreachable, empty neurons (wasted RAM):
+# token IDs above 50,256 are never emitted, and IDs above 65,535 cannot be stored at all.
+# At full GPT-2 vocab the line matrix is ~6.4 MB; the variable-length overflow store grows with
+# the actual corpus statistics.
+VOCAB_SIZE = "50257"
 
 [tasks.build]
 description = "Build the Rust library and binaries"
