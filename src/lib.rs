@@ -252,6 +252,23 @@ impl NeuronGuardField {
         })
     }
 
+    /// Get Neuron Synapses
+    /// Introspection method to read the explicit synaptic weights of a sensory neuron.
+    /// Returns a list of (target_motor_id, weight) tuples.
+    fn get_neuron_synapses(&self, token_id: u32) -> PyResult<Vec<(u32, i16)>> {
+        if (token_id as usize) >= self.sensory_count {
+            return Ok(vec![]);
+        }
+        let mut synapses = Vec::new();
+        unsafe {
+            let n = self.sensory_neurons.get_neuron(token_id as usize);
+            for i in 0..n.active_connections as usize {
+                synapses.push((n.target_neuron_ids[i], n.weight_modifiers[i]));
+            }
+        }
+        Ok(synapses)
+    }
+
     /// Save Weights
     /// Serializes and saves the sensory neurons' raw memory to a binary file.
     fn save_weights(&self, py: Python, path: String) -> PyResult<()> {

@@ -306,6 +306,112 @@ class TextClassifier:
         return str(idx)
 
     # -------------------------------------------------------------------------
+    # Diagnostics & Explainability
+    # -------------------------------------------------------------------------
+
+    def explain(self, text):
+        """Provide a transparent, token-by-token explanation for a prediction.
+
+        Because NeuronGuard is a direct associative memory rather than a black-box
+        neural network, we can perfectly trace exactly which words contributed
+        to the final prediction, and by exactly how much weight.
+
+        Args:
+            text: The input text string to classify.
+
+        Returns:
+            A dictionary containing:
+            - 'prediction': The predicted class index.
+            - 'prediction_name': The predicted class name.
+            - 'total_scores': Raw potentials for each class.
+            - 'word_contributions': A list of dicts detailing each word's exact weight contribution.
+        """
+        self._ensure_field()
+        tokens = self._tokenize(text)
+        
+        explanation = []
+        for token in tokens:
+            if token in self._vocab_map:
+                idx = self._vocab_map[token]
+                # Only explain unigrams for simplicity, but could do bigrams if we reconstruct them
+                if idx < (self.vocab_size // 2 if getattr(self, 'use_hashed_bigrams', False) else self.vocab_size):
+                    synapses = self._field.get_neuron_synapses(idx)
+                    contribs = {}
+                    for target_id, weight in synapses:
+                        name = self.class_names[target_id] if self.class_names and target_id < len(self.class_names) else str(target_id)
+                        contribs[name] = weight
+                    
+                    if contribs:
+                        explanation.append({
+                            "word": token,
+                            "contributions": contribs
+                        })
+        
+        prediction_idx = self.predict(text)
+        prediction_name = self.predict_name(text)
+        scores = self.predict_scores(text)
+        
+        return {
+            "prediction": prediction_idx,
+            "prediction_name": prediction_name,
+            "total_scores": scores,
+            "word_contributions": explanation
+        }
+
+    def get_class_features(self, class_idx, top_k=10):
+        """Introspect the memory to find the most strongly associated words for a class.
+
+        Args:
+            class_idx: The class index to inspect.
+            top_k: Number of top words to return.
+
+        Returns:
+            A list of (word, weight) tuples.
+        """
+        self._ensure_field()
+        features = []
+        
+        for word, idx in self._vocab_map.items():
+            # Skip hashed bigrams
+            if getattr(self, 'use_hashed_bigrams', False) and idx >= self.vocab_size // 2:
+                continue
+                
+            synapses = self._field.get_neuron_synapses(idx)
+            for target_id, weight in synapses:
+                if target_id == class_idx:
+                    features.append((word, weight))
+                    break
+                    
+        features.sort(key=lambda x: x[1], reverse=True)
+        return features[:top_k]
+        
+    def print_explanation(self, text):
+        """Out-of-the-box diagnostic print for prediction explanations."""
+        explanation = self.explain(text)
+        print(f"\n[Diagnostics] Input text: '{text}'")
+        print(f"[Diagnostics] Final Prediction: {explanation['prediction_name']}")
+        print(f"[Diagnostics] Raw Class Scores: {explanation['total_scores']}\n")
+        
+        if not explanation['word_contributions']:
+            print("  (No vocabulary words recognized in text)")
+            return
+            
+        print("Token Breakdown:")
+        for contrib in explanation['word_contributions']:
+            word = contrib['word']
+            weights = contrib['contributions']
+            weight_str = ", ".join([f"{cls}: {w:+}w" for cls, w in weights.items()])
+            print(f"  '{word:<10}' -> {weight_str}")
+            
+    def print_class_features(self, class_idx, top_k=10):
+        """Out-of-the-box diagnostic print for class features."""
+        features = self.get_class_features(class_idx, top_k)
+        class_name = self.class_names[class_idx] if self.class_names and class_idx < len(self.class_names) else str(class_idx)
+        print(f"\n[Diagnostics] Top {top_k} memory triggers for class '{class_name}':")
+        for word, weight in features:
+            print(f"  - '{word}' (Weight: +{weight})")
+
+    # -------------------------------------------------------------------------
     # Evaluation
     # -------------------------------------------------------------------------
 
