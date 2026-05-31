@@ -53,6 +53,8 @@ class TabularClassifier:
         amplify_delta=15,
         suppress_delta=5,
         baseline_delta=10,
+        use_feature_interactions=False,
+        interaction_vocab_size=1000000,
     ):
         """Initialise a TabularClassifier.
 
@@ -63,6 +65,8 @@ class TabularClassifier:
             amplify_delta: Weight increment for the correct class during training.
             suppress_delta: Weight decrement for incorrect classes during training.
             baseline_delta: Weight used for initial baseline seeding.
+            use_feature_interactions: If True, hashes pairs of features to capture 2D non-linear patterns.
+            interaction_vocab_size: Size of the hash space for interactions to prevent collisions.
         """
         self.num_classes = num_classes
         self.num_features = num_features
@@ -70,8 +74,12 @@ class TabularClassifier:
         self.amplify_delta = amplify_delta
         self.suppress_delta = suppress_delta
         self.baseline_delta = baseline_delta
+        self.use_feature_interactions = use_feature_interactions
+        self.interaction_vocab_size = interaction_vocab_size
 
         self.num_sensory = num_features * buckets_per_feature
+        if self.use_feature_interactions:
+            self.num_sensory += self.interaction_vocab_size
 
         self._field = None
         self._features_min = None
@@ -129,6 +137,16 @@ class TabularClassifier:
                 bucket = 0
 
             tokens.append(i * self.buckets_per_feature + bucket)
+            
+        if self.use_feature_interactions:
+            interaction_offset = self.num_features * self.buckets_per_feature
+            num_base_tokens = len(tokens)
+            for i in range(num_base_tokens):
+                for j in range(i + 1, num_base_tokens):
+                    # Deterministic fast hash for a pair of integers
+                    pair_hash = (tokens[i] * 83492791 + tokens[j]) % self.interaction_vocab_size
+                    tokens.append(interaction_offset + pair_hash)
+                    
         return tokens
 
     def _seed_baseline(self, default_class=0):

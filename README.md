@@ -51,10 +51,23 @@ Automatically buckets continuous numerical features and handles extreme class im
 ```python
 from neuronguard import TabularClassifier
 
-classifier = TabularClassifier(num_classes=2, num_features=5, buckets_per_feature=10)
+# Features are automatically bucketed into 10 buckets each.
+# use_feature_interactions=True mathematically hashes pairs of metrics together, 
+# allowing the engine to instantly learn 2D non-linear patterns (e.g. Physics Data).
+classifier = TabularClassifier(
+    num_classes=2, 
+    num_features=5, 
+    buckets_per_feature=10,
+    use_feature_interactions=True,
+    interaction_vocab_size=1000000
+)
 
-# Provide your features as a flat array per record
-classifier.fit(train_data, feature_indices=[0,1,2,3,4], label_index=5)
+# Seamlessly handles continuous data in O(1) time
+classifier.fit(
+    records=[(V1, V2, V3, V4, V5, label)], 
+    feature_indices=[0, 1, 2, 3, 4], 
+    label_index=5
+)
 prediction = classifier.predict([1.2, 0.4, 9.9, 3.1, 0.0])
 ```
 

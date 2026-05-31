@@ -17,12 +17,15 @@ def main():
 
     # 2 Classes (Signal=1, Background=0), 28 features. 
     # We use 100 buckets per feature to handle continuous physics data cleanly.
+    # Feature interactions are CRITICAL for physics data to learn 2D non-linear patterns.
     classifier = TabularClassifier(
         num_classes=2,
         num_features=28,
         buckets_per_feature=100,
         amplify_delta=15,
         suppress_delta=5,
+        use_feature_interactions=True,
+        interaction_vocab_size=5000000
     )
 
     feature_indices = list(range(1, 29))
