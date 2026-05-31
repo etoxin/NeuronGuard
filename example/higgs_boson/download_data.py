@@ -1,5 +1,5 @@
 import os
-import urllib.request
+import subprocess
 import gzip
 import shutil
 import time
@@ -23,7 +23,11 @@ def main():
 
     print(f"Downloading from {url}...")
     start_time = time.time()
-    urllib.request.urlretrieve(url, gz_path)
+    try:
+        subprocess.run(["curl", "-L", "-o", gz_path, url], check=True)
+    except subprocess.CalledProcessError:
+        print("Download failed. Please check your internet connection or try again later.")
+        return
     print(f"Download complete in {time.time() - start_time:.1f} seconds!\n")
 
     print("Extracting dataset (~2.6 GB)...")
