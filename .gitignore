@@ -21,9 +21,8 @@ target
 #.idea/
 
 # Downloaded Datasets for Examples
-example/ag_news/data/
-example/dbpedia/dbpedia_csv/
-example/fraud_scanner/data/
+example/**/data/
+example/**/dbpedia_csv/
 
 # Generated Model Weights and Vocabularies
 *.bin

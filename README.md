@@ -133,8 +133,8 @@ mise run examples:continuous_learning:run
 mise run examples:machine_unlearning:run
 
 # 4. Large-Scale Benchmarks
-mise run examples:ag_news:download_data
-mise run examples:ag_news:run
+mise run examples:amazon_reviews:download_data
+mise run examples:amazon_reviews:run
 
 mise run examples:dbpedia:download_data
 mise run examples:dbpedia:run
