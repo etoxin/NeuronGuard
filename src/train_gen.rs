@@ -24,6 +24,7 @@ pub struct NeuronGuardTrainerField {
     pub lines: Vec<HighDensityNeuromorphicLine>,
     pub potentials: Vec<AtomicI32>,
     pub macro_potentials: Vec<AtomicI32>, // Added for fast hierarchical WTA search
+    pub active_indices: Vec<u32>,         // Added to track active potentials in real-time
 }
 
 impl NeuronGuardTrainerField {
@@ -46,23 +47,27 @@ impl NeuronGuardTrainerField {
             macro_potentials.push(AtomicI32::new(0));
         }
 
+        let active_indices = Vec::with_capacity(10000);
+
         Self {
             sensory_count,
             motor_count,
             lines,
             potentials,
             macro_potentials,
+            active_indices,
         }
     }
 
     /// Resets all potentials to zero.
-    pub fn reset_potentials(&self) {
+    pub fn reset_potentials(&mut self) {
         for pot in &self.potentials {
             pot.store(0, Ordering::Relaxed);
         }
         for m_pot in &self.macro_potentials {
             m_pot.store(0, Ordering::Relaxed);
         }
+        self.active_indices.clear();
     }
 
     /// Executes a single-pass Spike-Driven Hebbian Plasticity training step on a stream of token indices.
@@ -88,7 +93,11 @@ impl NeuronGuardTrainerField {
                 let weight = line.synapses_weights[j] as i32;
 
                 if weight != 0 {
-                    self.potentials[target_token_id].fetch_add(weight, Ordering::Relaxed);
+                    let prev =
+                        self.potentials[target_token_id].fetch_add(weight, Ordering::Relaxed);
+                    if prev == 0 {
+                        self.active_indices.push(target_token_id as u32);
+                    }
                     if macro_idx < self.macro_potentials.len() {
                         self.macro_potentials[macro_idx].fetch_add(weight, Ordering::Relaxed);
                     }
@@ -108,15 +117,18 @@ impl NeuronGuardTrainerField {
             }
 
             // Tier-2: Find winning token within the winning cluster (1,000 elements)
-            let start_idx = winning_cluster * 1000;
-            let end_idx = (start_idx + 1000).min(self.motor_count);
+            // Skip micro search if all potentials are zero (max_macro_pot <= 0)
             let mut prediction = 0;
-            let mut max_potential = i32::MIN;
-            for i in start_idx..end_idx {
-                let pot = self.potentials[i].load(Ordering::Relaxed);
-                if pot > max_potential {
-                    max_potential = pot;
-                    prediction = i;
+            if max_macro_pot > 0 {
+                let start_idx = winning_cluster * 1000;
+                let end_idx = (start_idx + 1000).min(self.motor_count);
+                let mut max_potential = i32::MIN;
+                for i in start_idx..end_idx {
+                    let pot = self.potentials[i].load(Ordering::Relaxed);
+                    if pot > max_potential {
+                        max_potential = pot;
+                        prediction = i;
+                    }
                 }
             }
 
@@ -135,13 +147,17 @@ impl NeuronGuardTrainerField {
                 }
             }
 
-            // 4. Decay Step (applied once every 100 steps to keep the hot path O(1))
-            if t % 100 == 0 {
-                for pot in &self.potentials {
-                    let current = pot.load(Ordering::Relaxed);
+            // 4. Decay & Periodic Working Memory Flush (applied once every 100/1000 steps to keep the hot path O(1))
+            if t % 1000 == 0 {
+                // Periodic flush of short-term working memory to prevent active_indices accumulation
+                self.reset_potentials();
+            } else if t % 100 == 0 {
+                for &idx in &self.active_indices {
+                    let idx = idx as usize;
+                    let current = self.potentials[idx].load(Ordering::Relaxed);
                     if current != 0 {
                         let decayed = (current as f32 * 0.90) as i32;
-                        pot.store(decayed, Ordering::Relaxed);
+                        self.potentials[idx].store(decayed, Ordering::Relaxed);
                     }
                 }
                 for m_pot in &self.macro_potentials {
@@ -243,7 +259,7 @@ impl NeuronGuardTrainerField {
     }
 
     /// Processes a stream of token indices synchronously for inference.
-    pub fn process_step_sync(&self, token_indices: Vec<u32>) {
+    pub fn process_step_sync(&mut self, token_indices: Vec<u32>) {
         for &xt in &token_indices {
             let xt = xt as usize;
             if xt >= self.sensory_count {
@@ -254,7 +270,11 @@ impl NeuronGuardTrainerField {
                 let target_token_id = (xt + j) % self.motor_count;
                 let weight = line.synapses_weights[j] as i32;
                 if weight != 0 {
-                    self.potentials[target_token_id].fetch_add(weight, Ordering::Relaxed);
+                    let prev =
+                        self.potentials[target_token_id].fetch_add(weight, Ordering::Relaxed);
+                    if prev == 0 {
+                        self.active_indices.push(target_token_id as u32);
+                    }
                 }
             }
         }
@@ -360,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_trainer_field_creation_and_reset() {
-        let trainer = NeuronGuardTrainerField::new(100, 100);
+        let mut trainer = NeuronGuardTrainerField::new(100, 100);
         assert_eq!(trainer.sensory_count, 100);
         assert_eq!(trainer.motor_count, 100);
         assert_eq!(trainer.lines.len(), 100);

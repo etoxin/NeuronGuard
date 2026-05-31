@@ -604,7 +604,7 @@ impl PyNeuronGuardTrainerField {
         }
     }
 
-    fn reset_potentials(&self) {
+    fn reset_potentials(&mut self) {
         self.trainer.reset_potentials();
     }
 
@@ -622,7 +622,7 @@ impl PyNeuronGuardTrainerField {
         Ok(())
     }
 
-    fn process_step_sync(&self, token_indices: Vec<u32>) {
+    fn process_step_sync(&mut self, token_indices: Vec<u32>) {
         self.trainer.process_step_sync(token_indices);
     }
 
