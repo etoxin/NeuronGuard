@@ -24,6 +24,7 @@ pub mod train;
 use crate::neuron_guard::ThreadBoundedNeuronField;
 #[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
+#[cfg(feature = "extension-module")]
 use rayon::prelude::*;
 
 #[cfg(feature = "extension-module")]
@@ -278,6 +279,7 @@ impl NeuronGuardField {
     }
 }
 
+#[cfg(feature = "extension-module")]
 fn stem(word: &str) -> String {
     if word.len() <= 4 {
         return word.to_string();

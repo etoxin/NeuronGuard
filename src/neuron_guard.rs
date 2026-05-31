@@ -342,7 +342,8 @@ mod tests {
 
     #[test]
     fn test_concurrent_lease_acquisition() {
-        use std::sync::Barrier;
+        use std::sync::{Arc, Barrier};
+        use std::thread;
 
         let field = Arc::new(ThreadBoundedNeuronField::new(1));
         let barrier1 = Arc::new(Barrier::new(4));

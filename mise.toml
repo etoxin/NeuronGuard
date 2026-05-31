@@ -6,22 +6,22 @@ uv = "latest"
 [env]
 PYO3_USE_ABI3_FORWARD_COMPATIBILITY = 1
 
-# Rust
+# Rust tasks
 [tasks.poc]
-run = "cargo run --bin neuron-poc"
+run = "cargo run --no-default-features --bin neuron-poc"
 
 [tasks.run]
-run = "cargo run"
+run = "cargo run --no-default-features"
 
 [tasks."build:rust"]
 description = "Build the Rust library and binaries"
-run = "cargo build"
+run = "cargo build --no-default-features"
 
 [tasks."test:rust"]
 description = "Run all Rust unit tests"
-run = "cargo test"
+run = "cargo test --no-default-features"
 
-# Python
+# Python tasks
 [tasks."setup:py"]
 description = "Set up the Python virtual environment using uv"
 run = "uv venv && uv pip install maturin tiktoken datasets opencv-python"
@@ -34,13 +34,16 @@ run = "uv run --no-project maturin develop --release --features extension-module
 description = "Run the Python verification script"
 run = "uv run --no-project python verify.py"
 
-# global
-
+# global tasks
 [tasks.setup]
 depends = ["setup:*"]
 
 [tasks.build]
-depends = ["build:*"]
+description = "Build neuronguard"
+run = [
+    { task = "build:rust" },
+    { task = "build:py" },
+]
 
 [tasks.test]
 depends = ["test:*"]
