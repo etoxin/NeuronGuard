@@ -1,0 +1,7 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks."examples:sparse_embeddings:run"]
+description = "Run the NeuronGuard Sparse Embeddings Example"
+run = "uv run --no-project python main.py"
