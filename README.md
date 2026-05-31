@@ -87,7 +87,15 @@ correction = [(1, "my account upgrade to the premium plan failed")]
 classifier.update_records(correction)
 ```
 
-### 5. Raw Rust Batch API (GIL-Free)
+### 5. Instant Machine Unlearning (GDPR Compliance)
+In traditional Deep Learning, if a user requests their data be deleted (Right to be Forgotten), the entire model must often be retrained from scratch. Because NeuronGuard uses reversible Hebbian plasticity rather than entangled gradient descent, you can instantly erase a record's influence by simply passing it to `.unlearn_records()`.
+
+```python
+# Instantly subtracts the exact synaptic weight modifications caused by this record
+classifier.unlearn_records([(0, "Delete my private email address test@example.com")])
+```
+
+### 6. Raw Rust Batch API (GIL-Free)
 For ultimate performance, bypass the high-level classes and write batch processing loops using the raw Rust `NeuronGuardField` directly.
 
 ```python
@@ -122,6 +130,7 @@ mise run examples:getting_started_batch:run
 # 3. Transparent AI & Continuous Learning
 mise run examples:diagnostics_mode:run
 mise run examples:continuous_learning:run
+mise run examples:machine_unlearning:run
 
 # 4. Large-Scale Benchmarks
 mise run examples:ag_news:download_data

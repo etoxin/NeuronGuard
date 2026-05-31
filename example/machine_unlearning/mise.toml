@@ -1,0 +1,7 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks."examples:machine_unlearning:run"]
+description = "Run the NeuronGuard Machine Unlearning Example"
+run = "uv run --no-project python main.py"

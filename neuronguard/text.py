@@ -269,6 +269,27 @@ class TextClassifier:
                     indices, label, self.amplify_delta, self.suppress_delta
                 )
 
+    def unlearn_records(self, records):
+        """Instantly 'unlearn' records to comply with data privacy or correct errors.
+        
+        Because NeuronGuard uses reversible Hebbian plasticity rather than entangled
+        gradient descent, you can cleanly subtract the exact synaptic weight modifications
+        caused by a specific record. This solves the 'Machine Unlearning' problem instantly.
+        
+        Args:
+            records: Iterable of (label, text) tuples to unlearn.
+        """
+        if not self._is_fitted:
+            raise RuntimeError("Classifier must be fitted before it can be updated.")
+            
+        for label, text in records:
+            indices = self._text_to_indices(text)
+            if indices:
+                # Invert the deltas to subtract the exact influence this record had
+                self._field.train_stream(
+                    indices, label, -self.amplify_delta, -self.suppress_delta
+                )
+
     # -------------------------------------------------------------------------
     # Prediction
     # -------------------------------------------------------------------------
