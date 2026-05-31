@@ -5,6 +5,9 @@ python = "3.12"
 
 [env]
 TEMPERATURE = "0.6"
+TRAIN_BOOKS = "50"
+START_ID = "400"
+BOOK_URLS = ""
 
 # Toggle configuration tiers by commenting out/in targets
 # Tier 1 (Default Edge Baseline - ~6.40 MB Footprint)
