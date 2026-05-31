@@ -25,6 +25,7 @@ fraud scanner example.
 import json
 import os
 import random
+from typing import Dict, List, Optional, Tuple, Any, Iterable, Union
 
 
 class TabularClassifier:
@@ -47,26 +48,26 @@ class TabularClassifier:
 
     def __init__(
         self,
-        num_classes,
-        num_features,
-        buckets_per_feature=10,
-        amplify_delta=15,
-        suppress_delta=5,
-        baseline_delta=10,
-        use_feature_interactions=False,
-        interaction_vocab_size=1000000,
-    ):
+        num_classes: int,
+        num_features: int,
+        buckets_per_feature: int = 10,
+        amplify_delta: int = 15,
+        suppress_delta: int = 5,
+        baseline_delta: int = 10,
+        use_feature_interactions: bool = False,
+        interaction_vocab_size: int = 1000000,
+    ) -> None:
         """Initialise a TabularClassifier.
 
         Args:
-            num_classes: Number of output categories.
-            num_features: Number of input features.
-            buckets_per_feature: Number of discrete buckets per feature.
-            amplify_delta: Weight increment for the correct class during training.
-            suppress_delta: Weight decrement for incorrect classes during training.
-            baseline_delta: Weight used for initial baseline seeding.
-            use_feature_interactions: If True, hashes pairs of features to capture 2D non-linear patterns.
-            interaction_vocab_size: Size of the hash space for interactions to prevent collisions.
+            num_classes (int): Number of output categories.
+            num_features (int): Number of input features.
+            buckets_per_feature (int, optional): Number of discrete buckets per feature. Defaults to 10.
+            amplify_delta (int, optional): Weight increment for the correct class during training. Defaults to 15.
+            suppress_delta (int, optional): Weight decrement for incorrect classes during training. Defaults to 5.
+            baseline_delta (int, optional): Weight used for initial baseline seeding. Defaults to 10.
+            use_feature_interactions (bool, optional): If True, hashes pairs of features to capture 2D non-linear patterns. Defaults to False.
+            interaction_vocab_size (int, optional): Size of the hash space for interactions to prevent collisions. Defaults to 1000000.
         """
         self.num_classes = num_classes
         self.num_features = num_features
@@ -81,12 +82,12 @@ class TabularClassifier:
         if self.use_feature_interactions:
             self.num_sensory += self.interaction_vocab_size
 
-        self._field = None
-        self._features_min = None
-        self._features_max = None
-        self._is_fitted = False
+        self._field: Optional[Any] = None
+        self._features_min: Optional[List[float]] = None
+        self._features_max: Optional[List[float]] = None
+        self._is_fitted: bool = False
 
-    def _ensure_field(self):
+    def _ensure_field(self) -> None:
         """Lazily import and create the Rust NeuronGuardField."""
         if self._field is None:
             from .neuronguard import NeuronGuardField
@@ -95,8 +96,13 @@ class TabularClassifier:
                 sensory_count=self.num_sensory, motor_count=self.num_classes
             )
 
-    def _compute_boundaries(self, records, feature_indices):
-        """Compute min/max boundaries for each feature from training data."""
+    def _compute_boundaries(self, records: Iterable[Union[List[float], Tuple[float, ...]]], feature_indices: List[int]) -> None:
+        """Compute min/max boundaries for each feature from training data.
+        
+        Args:
+            records (Iterable[Union[List[float], Tuple[float, ...]]]): Training records.
+            feature_indices (List[int]): Indices of the features.
+        """
         self._features_min = [float("inf")] * self.num_features
         self._features_max = [float("-inf")] * self.num_features
 
@@ -108,14 +114,14 @@ class TabularClassifier:
                 if val > self._features_max[i]:
                     self._features_max[i] = val
 
-    def _get_tokens(self, features):
+    def _get_tokens(self, features: List[float]) -> List[int]:
         """Convert a list of feature values to sensory neuron indices.
 
         Args:
-            features: List of numerical feature values (same order as feature_indices).
+            features (List[float]): List of numerical feature values (same order as feature_indices).
 
         Returns:
-            List of sensory neuron indices.
+            List[int]: List of sensory neuron indices.
         """
         tokens = []
         for i in range(self.num_features):
@@ -149,8 +155,12 @@ class TabularClassifier:
                     
         return tokens
 
-    def _seed_baseline(self, default_class=0):
-        """Seed all sensory neurons to a default class (e.g., legitimate)."""
+    def _seed_baseline(self, default_class: int = 0) -> None:
+        """Seed all sensory neurons to a default class (e.g., legitimate).
+        
+        Args:
+            default_class (int, optional): The class to seed to. Defaults to 0.
+        """
         for i in range(self.num_sensory):
             self._field.train_stream([i], default_class, self.baseline_delta, 0)
 
@@ -160,25 +170,25 @@ class TabularClassifier:
 
     def fit(
         self,
-        records,
-        feature_indices,
-        label_index,
-        epochs=1,
-        shuffle=True,
-        class_weights=None,
-        default_class=0,
-    ):
+        records: Iterable[Union[List[float], Tuple[float, ...]]],
+        feature_indices: List[int],
+        label_index: int,
+        epochs: int = 1,
+        shuffle: bool = True,
+        class_weights: Optional[Dict[int, int]] = None,
+        default_class: int = 0,
+    ) -> None:
         """Train the classifier on tabular records.
 
         Args:
-            records: List of records (lists/tuples of values).
-            feature_indices: List of column indices for input features.
-            label_index: Column index for the integer class label.
-            epochs: Number of training epochs.
-            shuffle: Whether to shuffle records before each epoch.
-            class_weights: Optional dict mapping class_label → oversample_multiplier.
-                For example, {1: 100} trains fraud cases 100 times per epoch.
-            default_class: The class to seed all neurons to initially (e.g., 0 for "legitimate").
+            records (Iterable[Union[List[float], Tuple[float, ...]]]): List of records (lists/tuples of values).
+            feature_indices (List[int]): List of column indices for input features.
+            label_index (int): Column index for the integer class label.
+            epochs (int, optional): Number of training epochs. Defaults to 1.
+            shuffle (bool, optional): Whether to shuffle records before each epoch. Defaults to True.
+            class_weights (Optional[Dict[int, int]], optional): Optional dict mapping class_label → oversample_multiplier.
+                For example, {1: 100} trains fraud cases 100 times per epoch. Defaults to None.
+            default_class (int, optional): The class to seed all neurons to initially (e.g., 0 for "legitimate"). Defaults to 0.
         """
         records = list(records)
         if class_weights is None:
@@ -217,29 +227,29 @@ class TabularClassifier:
 
     def fit_from_csv(
         self,
-        file_path,
-        feature_indices,
-        label_index,
-        epochs=1,
-        class_weights=None,
-        default_class=0,
-        delimiter=",",
-        skip_header=False
-    ):
+        file_path: str,
+        feature_indices: List[int],
+        label_index: int,
+        epochs: int = 1,
+        class_weights: Optional[Dict[int, int]] = None,
+        default_class: int = 0,
+        delimiter: str = ",",
+        skip_header: bool = False
+    ) -> None:
         """Train the classifier by streaming directly from a CSV file.
         
         This uses O(1) memory and is designed for massive datasets (10M+ rows)
         that cannot fit in RAM. It makes multiple passes over the file.
 
         Args:
-            file_path: Path to the CSV file.
-            feature_indices: List of column indices for input features.
-            label_index: Column index for the integer class label.
-            epochs: Number of training epochs.
-            class_weights: Optional dict mapping class_label -> oversample_multiplier.
-            default_class: The class to seed all neurons to initially.
-            delimiter: CSV delimiter.
-            skip_header: Whether to skip the first row.
+            file_path (str): Path to the CSV file.
+            feature_indices (List[int]): List of column indices for input features.
+            label_index (int): Column index for the integer class label.
+            epochs (int, optional): Number of training epochs. Defaults to 1.
+            class_weights (Optional[Dict[int, int]], optional): Optional dict mapping class_label -> oversample_multiplier. Defaults to None.
+            default_class (int, optional): The class to seed all neurons to initially. Defaults to 0.
+            delimiter (str, optional): CSV delimiter. Defaults to ",".
+            skip_header (bool, optional): Whether to skip the first row. Defaults to False.
         """
         import csv
         if class_weights is None:
@@ -288,16 +298,16 @@ class TabularClassifier:
 
         self._is_fitted = True
 
-    def update(self, X, label_index, class_weights=None):
+    def update(self, X: Iterable[Union[List[float], Tuple[float, ...]]], label_index: int, class_weights: Optional[Dict[int, int]] = None) -> None:
         """Continually learn from new records on the fly.
         
         This enables zero-overhead online/continuous learning. The model weights are
         updated instantly.
         
         Args:
-            X: Iterable of lists of floats (features) with the label appended.
-            label_index: The index of the label in each record.
-            class_weights: Optional dict mapping class_label -> oversample_multiplier.
+            X (Iterable[Union[List[float], Tuple[float, ...]]]): Iterable of lists of floats (features) with the label appended.
+            label_index (int): The index of the label in each record.
+            class_weights (Optional[Dict[int, int]], optional): Optional dict mapping class_label -> oversample_multiplier. Defaults to None.
         """
         if not self._is_fitted:
             raise RuntimeError("Classifier must be fitted before it can be updated.")
@@ -321,12 +331,12 @@ class TabularClassifier:
                     self.suppress_delta * weight
                 )
 
-    def unlearn(self, X, label_index):
+    def unlearn(self, X: Iterable[Union[List[float], Tuple[float, ...]]], label_index: int) -> None:
         """Surgically unlearn records by applying negative Hebbian deltas.
         
         Args:
-            X: Iterable of lists of floats (features) with the label appended.
-            label_index: The index of the label in each record.
+            X (Iterable[Union[List[float], Tuple[float, ...]]]): Iterable of lists of floats (features) with the label appended.
+            label_index (int): The index of the label in each record.
         """
         if not self._is_fitted:
             raise RuntimeError("Classifier must be fitted before it can be unlearned.")
@@ -350,16 +360,16 @@ class TabularClassifier:
     # Prediction
     # -------------------------------------------------------------------------
 
-    def predict(self, features):
+    def predict(self, features: List[float]) -> int:
         """Classify a feature vector and return the predicted class index.
 
         Atomically handles reset → tokenize → process → argmax.
 
         Args:
-            features: List of numerical feature values (same order as training features).
+            features (List[float]): List of numerical feature values (same order as training features).
 
         Returns:
-            The predicted class index (0-indexed).
+            int: The predicted class index (0-indexed).
         """
         tokens = self._get_tokens(features)
         self._field.reset_potentials()
@@ -367,14 +377,14 @@ class TabularClassifier:
         potentials = self._field.get_potentials()
         return potentials.index(max(potentials))
 
-    def predict_scores(self, features):
+    def predict_scores(self, features: List[float]) -> List[int]:
         """Classify a feature vector and return raw potentials for all classes.
 
         Args:
-            features: List of numerical feature values.
+            features (List[float]): List of numerical feature values.
 
         Returns:
-            A list of integer potentials, one per class.
+            List[int]: A list of integer potentials, one per class.
         """
         tokens = self._get_tokens(features)
         self._field.reset_potentials()
@@ -385,16 +395,16 @@ class TabularClassifier:
     # Evaluation
     # -------------------------------------------------------------------------
 
-    def evaluate(self, records, feature_indices, label_index):
+    def evaluate(self, records: Iterable[Union[List[float], Tuple[float, ...]]], feature_indices: List[int], label_index: int) -> Tuple[float, str]:
         """Evaluate accuracy on test records.
 
         Args:
-            records: List of test records.
-            feature_indices: List of column indices for input features.
-            label_index: Column index for the class label.
+            records (Iterable[Union[List[float], Tuple[float, ...]]]): List of test records.
+            feature_indices (List[int]): List of column indices for input features.
+            label_index (int): Column index for the class label.
 
         Returns:
-            A tuple of (accuracy_pct, report_str) with per-class metrics.
+            Tuple[float, str]: A tuple of (accuracy_pct, report_str) with per-class metrics.
         """
         confusion = [[0] * self.num_classes for _ in range(self.num_classes)]
         correct = 0
@@ -417,8 +427,19 @@ class TabularClassifier:
         report = self._format_report(confusion, correct, total, accuracy)
         return accuracy, report
 
-    def evaluate_from_csv(self, file_path, feature_indices, label_index, delimiter=",", skip_header=False):
-        """Evaluate accuracy by streaming directly from a CSV file."""
+    def evaluate_from_csv(self, file_path: str, feature_indices: List[int], label_index: int, delimiter: str = ",", skip_header: bool = False) -> Tuple[float, str]:
+        """Evaluate accuracy by streaming directly from a CSV file.
+        
+        Args:
+            file_path (str): Path to the test CSV file.
+            feature_indices (List[int]): List of column indices for input features.
+            label_index (int): Column index for the class label.
+            delimiter (str, optional): CSV delimiter. Defaults to ",".
+            skip_header (bool, optional): Whether to skip the first row. Defaults to False.
+
+        Returns:
+            Tuple[float, str]: A tuple of (accuracy_pct, report_str) with per-class metrics.
+        """
         import csv
         confusion = [[0] * self.num_classes for _ in range(self.num_classes)]
         correct = 0
@@ -445,8 +466,18 @@ class TabularClassifier:
         report = self._format_report(confusion, correct, total, accuracy)
         return accuracy, report
 
-    def _format_report(self, confusion, correct, total, accuracy):
-        """Format a classification report with per-class metrics."""
+    def _format_report(self, confusion: List[List[int]], correct: int, total: int, accuracy: float) -> str:
+        """Format a classification report with per-class metrics.
+        
+        Args:
+            confusion (List[List[int]]): Confusion matrix.
+            correct (int): Number of correctly predicted samples.
+            total (int): Total number of samples.
+            accuracy (float): Overall accuracy percentage.
+
+        Returns:
+            str: Formatted classification report.
+        """
         lines = []
         lines.append(f"Accuracy: {accuracy:.2f}% ({correct}/{total})")
         lines.append("")
@@ -478,11 +509,11 @@ class TabularClassifier:
     # Persistence
     # -------------------------------------------------------------------------
 
-    def save(self, path):
+    def save(self, path: str) -> None:
         """Save the trained model to a directory.
 
         Args:
-            path: Directory path to save the model to.
+            path (str): Directory path to save the model to.
         """
         os.makedirs(path, exist_ok=True)
 
@@ -502,14 +533,14 @@ class TabularClassifier:
             json.dump(config, f, indent=2)
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: str) -> "TabularClassifier":
         """Load a trained model from a directory.
 
         Args:
-            path: Directory path containing weights.bin and config.json.
+            path (str): Directory path containing weights.bin and config.json.
 
         Returns:
-            A fitted TabularClassifier instance.
+            TabularClassifier: A fitted TabularClassifier instance.
         """
         with open(os.path.join(path, "config.json"), "r", encoding="utf-8") as f:
             config = json.load(f)
@@ -533,8 +564,15 @@ class TabularClassifier:
         return classifier
 
     @staticmethod
-    def exists(path):
-        """Check whether a saved model exists at the given path."""
+    def exists(path: str) -> bool:
+        """Check whether a saved model exists at the given path.
+        
+        Args:
+            path (str): Directory path to check.
+
+        Returns:
+            bool: True if weights and config exist.
+        """
         return os.path.exists(os.path.join(path, "weights.bin")) and os.path.exists(
             os.path.join(path, "config.json")
         )

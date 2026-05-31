@@ -20,9 +20,10 @@ Replaces the 3 different ad-hoc tokenizers previously scattered across examples.
 """
 
 import re
+from typing import Set, Optional, List, FrozenSet
 
 # Comprehensive stop words list — union of all example lists plus common noise words
-DEFAULT_STOP_WORDS = frozenset({
+DEFAULT_STOP_WORDS: FrozenSet[str] = frozenset({
     # Determiners & articles
     "the", "a", "an", "this", "that", "these", "those",
     # Prepositions
@@ -42,11 +43,31 @@ DEFAULT_STOP_WORDS = frozenset({
     "first", "last", "each", "made", "said", "new", "one", "two", "three",
 })
 
-MIN_TOKEN_LENGTH = 3
+MIN_TOKEN_LENGTH: int = 3
 
 from .neuronguard import tokenize as _rust_tokenize
 
-def tokenize(text, stop_words=None, apply_stemming=True, min_length=MIN_TOKEN_LENGTH):
+def tokenize(
+    text: str,
+    stop_words: Optional[Set[str]] = None,
+    apply_stemming: bool = True,
+    min_length: int = MIN_TOKEN_LENGTH,
+) -> List[str]:
+    """Tokenize a string into a list of words.
+
+    Args:
+        text (str): The input text to tokenize.
+        stop_words (Optional[Set[str]], optional): A set of stop words to exclude. Defaults to None, which uses DEFAULT_STOP_WORDS.
+        apply_stemming (bool, optional): Whether to apply stemming to the tokens. Defaults to True.
+        min_length (int, optional): Minimum length for a token to be kept. Defaults to MIN_TOKEN_LENGTH.
+
+    Returns:
+        List[str]: A list of processed token strings.
+
+    Examples:
+        >>> tokenize("The quick brown foxes!", apply_stemming=True)
+        ['quick', 'brown', 'fox']
+    """
     if stop_words is None:
-        stop_words = DEFAULT_STOP_WORDS
+        stop_words = set(DEFAULT_STOP_WORDS)
     return _rust_tokenize(text, stop_words, apply_stemming, min_length)

@@ -20,29 +20,34 @@ Instead of dense floating-point matrices, NeuronGuard models intelligence as a n
 
 The high-level Python SDK handles vocabulary building, tokenization (in native Rust), hyperparameter scaling, and out-of-the-box diagnostics.
 
-### 1. `TextClassifier`
+### `TextClassifier`
 Handles high-speed text classification with discriminative vocabulary scoring.
 
 ```python
 from neuronguard import TextClassifier
 
-# 1. Initialize
+# Initialise the TextClassifier with 4 classes
 classifier = TextClassifier(
-    num_classes=4, 
-    vocab_size=10000, 
-    class_names=["World", "Sports", "Business", "Sci/Tech"]
+    num_classes=4,
+    vocab_size=1000,
+    class_names=["World", "Sports", "Business", "Sci/Tech"],
 )
 
-# 2. Train (Multi-epoch, shuffled, ~120k rows in 3 seconds)
+# Train the model. Identify the text,label index in the CSV and run for 5 epochs
 classifier.fit("train.csv", text_col=[1, 2], label_col=0, epochs=5)
 
-# 3. Predict & Evaluate
+# Evaluate with a similar setup.
 accuracy, report = classifier.evaluate("test.csv", text_col=[1, 2], label_col=0)
-print(classifier.predict_name("Football match ends in a draw")) # -> "Sports"
 
-# 4. Instant Pointerless Mmap Save/Load
+# Make a prediction
+print(classifier.predict_name("Football match ends in a draw"))  # -> "Sports"
+
+# Save the model
 classifier.save("./model_dir")
+
+# Load the model and make a prediction
 fast_model = TextClassifier.load("./model_dir")
+print(fast_model.predict_name("Football match ends in a draw"))
 ```
 
 ### 2. `TabularClassifier`

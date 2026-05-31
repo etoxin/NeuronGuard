@@ -27,6 +27,8 @@ import csv
 import json
 import os
 import random
+from typing import Dict, List, Optional, Set, Tuple, Any, Iterable, Union
+
 
 from .tokenizer import DEFAULT_STOP_WORDS, tokenize
 from .vocab import build_vocab
@@ -50,29 +52,30 @@ class TextClassifier:
 
     def __init__(
         self,
-        num_classes,
-        vocab_size=5000,
-        amplify_delta=15,
-        suppress_delta=5,
-        seed_max_weight=30,
-        stop_words=None,
-        apply_stemming=True,
-        vocab_scoring="discriminative",
-        class_names=None,
-        use_hashed_bigrams=False,
-    ):
+        num_classes: int,
+        vocab_size: int = 5000,
+        amplify_delta: int = 15,
+        suppress_delta: int = 5,
+        seed_max_weight: int = 30,
+        stop_words: Optional[Iterable[str]] = None,
+        apply_stemming: bool = True,
+        vocab_scoring: str = "discriminative",
+        class_names: Optional[List[str]] = None,
+        use_hashed_bigrams: bool = False,
+    ) -> None:
         """Initialise a TextClassifier.
 
         Args:
-            num_classes: Number of output categories.
-            vocab_size: Maximum vocabulary size (number of sensory neurons).
-            amplify_delta: Weight increment for the correct class during training.
-            suppress_delta: Weight decrement for incorrect classes during training.
-            seed_max_weight: Maximum weight used when pre-seeding category distributions.
-            stop_words: Optional custom stop words set. Defaults to built-in comprehensive list.
-            apply_stemming: Whether to apply lightweight suffix stripping.
-            vocab_scoring: Vocabulary scoring strategy — "discriminative" or "frequency".
-            class_names: Optional list of human-readable class names.
+            num_classes (int): Number of output categories.
+            vocab_size (int, optional): Maximum vocabulary size (number of sensory neurons). Defaults to 5000.
+            amplify_delta (int, optional): Weight increment for the correct class during training. Defaults to 15.
+            suppress_delta (int, optional): Weight decrement for incorrect classes during training. Defaults to 5.
+            seed_max_weight (int, optional): Maximum weight used when pre-seeding category distributions. Defaults to 30.
+            stop_words (Optional[Iterable[str]], optional): Optional custom stop words set. Defaults to built-in comprehensive list.
+            apply_stemming (bool, optional): Whether to apply lightweight suffix stripping. Defaults to True.
+            vocab_scoring (str, optional): Vocabulary scoring strategy — "discriminative" or "frequency". Defaults to "discriminative".
+            class_names (Optional[List[str]], optional): Optional list of human-readable class names. Defaults to None.
+            use_hashed_bigrams (bool, optional): Whether to use hashed bigrams. Defaults to False.
         """
         self.num_classes = num_classes
         self.vocab_size = vocab_size
@@ -86,12 +89,12 @@ class TextClassifier:
         self.use_hashed_bigrams = use_hashed_bigrams
 
         # These are populated during fit() or load()
-        self._field = None
-        self._vocab_map = {}
-        self._vocab_list = []
-        self._is_fitted = False
+        self._field: Optional[Any] = None
+        self._vocab_map: Dict[str, Union[int, List[int]]] = {}
+        self._vocab_list: List[Tuple[str, List[int], int]] = []
+        self._is_fitted: bool = False
 
-    def _ensure_field(self):
+    def _ensure_field(self) -> None:
         """Lazily import and create the Rust NeuronGuardField."""
         if self._field is None:
             from .neuronguard import NeuronGuardField
@@ -100,16 +103,30 @@ class TextClassifier:
                 sensory_count=self.vocab_size, motor_count=self.num_classes
             )
 
-    def _tokenize(self, text):
-        """Tokenize text using the classifier's configured pipeline."""
+    def _tokenize(self, text: str) -> List[str]:
+        """Tokenize text using the classifier's configured pipeline.
+        
+        Args:
+            text (str): Input text to tokenize.
+            
+        Returns:
+            List[str]: List of token strings.
+        """
         return tokenize(
             text,
             stop_words=self.stop_words,
             apply_stemming=self.apply_stemming,
         )
 
-    def _text_to_indices(self, text):
-        """Convert text to a list of vocabulary indices."""
+    def _text_to_indices(self, text: str) -> List[int]:
+        """Convert text to a list of vocabulary indices.
+        
+        Args:
+            text (str): Input text.
+            
+        Returns:
+            List[int]: List of vocabulary indices.
+        """
         tokens = self._tokenize(text)
         
         # Unigram indices (lower half of space if bigrams enabled)
@@ -134,7 +151,7 @@ class TextClassifier:
                 
         return indices
 
-    def _seed_weights(self):
+    def _seed_weights(self) -> None:
         """Pre-seed neuron weights proportional to category distributions.
 
         Instead of assigning each word to a single dominant category with a
@@ -154,17 +171,17 @@ class TextClassifier:
     # Fitting
     # -------------------------------------------------------------------------
 
-    def fit(self, train_file, text_col, label_col, epochs=3, shuffle=True, label_offset=-1):
+    def fit(self, train_file: str, text_col: Union[int, List[int]], label_col: int, epochs: int = 3, shuffle: bool = True, label_offset: int = -1) -> None:
         """Train the classifier from a CSV file.
 
         Args:
-            train_file: Path to the training CSV file.
-            text_col: Column index (int) or list of column indices to concatenate as text.
-            label_col: Column index containing the integer class label.
-            epochs: Number of training epochs with per-epoch shuffling.
-            shuffle: Whether to shuffle records before each epoch.
-            label_offset: Value subtracted from the raw label to get a 0-indexed class.
-                Use -1 for 1-indexed CSV labels (default), 0 if labels are already 0-indexed.
+            train_file (str): Path to the training CSV file.
+            text_col (Union[int, List[int]]): Column index (int) or list of column indices to concatenate as text.
+            label_col (int): Column index containing the integer class label.
+            epochs (int, optional): Number of training epochs with per-epoch shuffling. Defaults to 3.
+            shuffle (bool, optional): Whether to shuffle records before each epoch. Defaults to True.
+            label_offset (int, optional): Value subtracted from the raw label to get a 0-indexed class.
+                Use -1 for 1-indexed CSV labels (default), 0 if labels are already 0-indexed. Defaults to -1.
         """
         if isinstance(text_col, int):
             text_col = [text_col]
@@ -213,14 +230,14 @@ class TextClassifier:
 
         self._is_fitted = True
 
-    def fit_records(self, records, epochs=3, shuffle=True):
+    def fit_records(self, records: Iterable[Tuple[int, str]], epochs: int = 3, shuffle: bool = True) -> None:
         """Train the classifier from pre-parsed records.
 
         Args:
-            records: Iterable of (label, text) tuples where label is a
+            records (Iterable[Tuple[int, str]]): Iterable of (label, text) tuples where label is a
                 0-indexed int and text is the raw input string.
-            epochs: Number of training epochs.
-            shuffle: Whether to shuffle records before each epoch.
+            epochs (int, optional): Number of training epochs. Defaults to 3.
+            shuffle (bool, optional): Whether to shuffle records before each epoch. Defaults to True.
         """
         records = list(records)
 
@@ -257,14 +274,14 @@ class TextClassifier:
 
         self._is_fitted = True
 
-    def update_records(self, records):
+    def update_records(self, records: Iterable[Tuple[int, str]]) -> None:
         """Continually learn from new records on the fly without rebuilding the vocabulary.
         
         This enables zero-overhead online/continuous learning. The model weights are
         updated instantly. Words not in the original vocabulary are ignored.
         
         Args:
-            records: Iterable of (label, text) tuples.
+            records (Iterable[Tuple[int, str]]): Iterable of (label, text) tuples.
         """
         if not self._is_fitted:
             raise RuntimeError("Classifier must be fitted before it can be updated.")
@@ -276,7 +293,7 @@ class TextClassifier:
                     indices, label, self.amplify_delta, self.suppress_delta
                 )
 
-    def unlearn_records(self, records):
+    def unlearn_records(self, records: Iterable[Tuple[int, str]]) -> None:
         """Instantly 'unlearn' records to comply with data privacy or correct errors.
         
         Because NeuronGuard uses reversible Hebbian plasticity rather than entangled
@@ -284,7 +301,7 @@ class TextClassifier:
         caused by a specific record. This solves the 'Machine Unlearning' problem instantly.
         
         Args:
-            records: Iterable of (label, text) tuples to unlearn.
+            records (Iterable[Tuple[int, str]]): Iterable of (label, text) tuples to unlearn.
         """
         if not self._is_fitted:
             raise RuntimeError("Classifier must be fitted before it can be updated.")
@@ -301,7 +318,7 @@ class TextClassifier:
     # Prediction
     # -------------------------------------------------------------------------
 
-    def predict(self, text):
+    def predict(self, text: str) -> int:
         """Classify text and return the predicted class index.
 
         Atomically handles reset → tokenize → process → argmax.
@@ -309,10 +326,10 @@ class TextClassifier:
         silent accuracy bug in the raw API — this method makes it impossible.
 
         Args:
-            text: The input text string to classify.
+            text (str): The input text string to classify.
 
         Returns:
-            The predicted class index (0-indexed).
+            int: The predicted class index (0-indexed).
         """
         indices = self._text_to_indices(text)
         self._field.reset_potentials()
@@ -321,14 +338,14 @@ class TextClassifier:
         potentials = self._field.get_potentials()
         return potentials.index(max(potentials))
 
-    def predict_scores(self, text):
+    def predict_scores(self, text: str) -> List[int]:
         """Classify text and return raw motor neuron potentials for all classes.
 
         Args:
-            text: The input text string to classify.
+            text (str): The input text string to classify.
 
         Returns:
-            A list of integer potentials, one per class.
+            List[int]: A list of integer potentials, one per class.
         """
         indices = self._text_to_indices(text)
         self._field.reset_potentials()
@@ -336,16 +353,16 @@ class TextClassifier:
             self._field.predict(indices)
         return self._field.get_potentials()
 
-    def predict_name(self, text):
+    def predict_name(self, text: str) -> str:
         """Classify text and return the human-readable class name.
 
         Requires class_names to be set during construction.
 
         Args:
-            text: The input text string to classify.
+            text (str): The input text string to classify.
 
         Returns:
-            The predicted class name string.
+            str: The predicted class name string.
         """
         idx = self.predict(text)
         if self.class_names and idx < len(self.class_names):
@@ -356,7 +373,7 @@ class TextClassifier:
     # Diagnostics & Explainability
     # -------------------------------------------------------------------------
 
-    def explain(self, text):
+    def explain(self, text: str) -> Dict[str, Any]:
         """Provide a transparent, token-by-token explanation for a prediction.
 
         Because NeuronGuard is a direct associative memory rather than a black-box
@@ -364,14 +381,14 @@ class TextClassifier:
         to the final prediction, and by exactly how much weight.
 
         Args:
-            text: The input text string to classify.
+            text (str): The input text string to classify.
 
         Returns:
-            A dictionary containing:
-            - 'prediction': The predicted class index.
-            - 'prediction_name': The predicted class name.
-            - 'total_scores': Raw potentials for each class.
-            - 'word_contributions': A list of dicts detailing each word's exact weight contribution.
+            Dict[str, Any]: A dictionary containing:
+                - 'prediction': The predicted class index.
+                - 'prediction_name': The predicted class name.
+                - 'total_scores': Raw potentials for each class.
+                - 'word_contributions': A list of dicts detailing each word's exact weight contribution.
         """
         self._ensure_field()
         tokens = self._tokenize(text)
@@ -413,15 +430,15 @@ class TextClassifier:
             "word_contributions": explanation
         }
 
-    def get_class_features(self, class_idx, top_k=10):
+    def get_class_features(self, class_idx: int, top_k: int = 10) -> List[Tuple[str, int]]:
         """Introspect the memory to find the most strongly associated words for a class.
 
         Args:
-            class_idx: The class index to inspect.
-            top_k: Number of top words to return.
+            class_idx (int): The class index to inspect.
+            top_k (int, optional): Number of top words to return. Defaults to 10.
 
         Returns:
-            A list of (word, weight) tuples.
+            List[Tuple[str, int]]: A list of (word, weight) tuples.
         """
         self._ensure_field()
         if not self._is_fitted:
@@ -450,8 +467,12 @@ class TextClassifier:
         word_scores.sort(key=lambda x: x[1], reverse=True)
         return word_scores[:top_k]
         
-    def print_explanation(self, text):
-        """Out-of-the-box diagnostic print for prediction explanations."""
+    def print_explanation(self, text: str) -> None:
+        """Out-of-the-box diagnostic print for prediction explanations.
+        
+        Args:
+            text (str): The input text string to classify.
+        """
         explanation = self.explain(text)
         print(f"\n[Diagnostics] Input text: '{text}'")
         print(f"[Diagnostics] Final Prediction: {explanation['prediction_name']}")
@@ -468,8 +489,13 @@ class TextClassifier:
             weight_str = ", ".join([f"{cls}: {w:+}w" for cls, w in weights.items()])
             print(f"  '{word:<10}' -> {weight_str}")
             
-    def print_class_features(self, class_idx, top_k=10):
-        """Out-of-the-box diagnostic print for class features."""
+    def print_class_features(self, class_idx: int, top_k: int = 10) -> None:
+        """Out-of-the-box diagnostic print for class features.
+        
+        Args:
+            class_idx (int): The class index to inspect.
+            top_k (int, optional): Number of top words to return. Defaults to 10.
+        """
         features = self.get_class_features(class_idx, top_k)
         class_name = self.class_names[class_idx] if self.class_names and class_idx < len(self.class_names) else str(class_idx)
         print(f"\n[Diagnostics] Top {top_k} memory triggers for class '{class_name}':")
@@ -480,17 +506,17 @@ class TextClassifier:
     # Evaluation
     # -------------------------------------------------------------------------
 
-    def evaluate(self, test_file, text_col, label_col, label_offset=-1):
+    def evaluate(self, test_file: str, text_col: Union[int, List[int]], label_col: int, label_offset: int = -1) -> Tuple[float, str]:
         """Evaluate accuracy on a test CSV file.
 
         Args:
-            test_file: Path to the test CSV file.
-            text_col: Column index or list of indices for text.
-            label_col: Column index for the integer class label.
-            label_offset: Value subtracted from raw label (default -1 for 1-indexed).
+            test_file (str): Path to the test CSV file.
+            text_col (Union[int, List[int]]): Column index or list of indices for text.
+            label_col (int): Column index for the integer class label.
+            label_offset (int, optional): Value subtracted from raw label. Defaults to -1 for 1-indexed.
 
         Returns:
-            A tuple of (accuracy_pct, report_str) where report_str is a
+            Tuple[float, str]: A tuple of (accuracy_pct, report_str) where report_str is a
             formatted table with per-class Precision, Recall, and F1.
         """
         if isinstance(text_col, int):
@@ -519,14 +545,14 @@ class TextClassifier:
         report = self._format_report(confusion, correct, total, accuracy)
         return accuracy, report
 
-    def evaluate_records(self, records):
+    def evaluate_records(self, records: Iterable[Tuple[int, str]]) -> Tuple[float, str]:
         """Evaluate accuracy on pre-parsed records.
 
         Args:
-            records: Iterable of (label, text) tuples.
+            records (Iterable[Tuple[int, str]]): Iterable of (label, text) tuples.
 
         Returns:
-            A tuple of (accuracy_pct, report_str).
+            Tuple[float, str]: A tuple of (accuracy_pct, report_str).
         """
         confusion = [[0] * self.num_classes for _ in range(self.num_classes)]
         correct = 0
@@ -543,8 +569,18 @@ class TextClassifier:
         report = self._format_report(confusion, correct, total, accuracy)
         return accuracy, report
 
-    def _format_report(self, confusion, correct, total, accuracy):
-        """Format a classification report with per-class metrics."""
+    def _format_report(self, confusion: List[List[int]], correct: int, total: int, accuracy: float) -> str:
+        """Format a classification report with per-class metrics.
+        
+        Args:
+            confusion (List[List[int]]): Confusion matrix.
+            correct (int): Number of correctly predicted samples.
+            total (int): Total number of samples.
+            accuracy (float): Overall accuracy percentage.
+            
+        Returns:
+            str: Formatted classification report.
+        """
         lines = []
         lines.append(f"Accuracy: {accuracy:.2f}% ({correct}/{total})")
         lines.append("")
@@ -580,7 +616,7 @@ class TextClassifier:
     # Persistence
     # -------------------------------------------------------------------------
 
-    def save(self, path):
+    def save(self, path: str) -> None:
         """Save the trained model to a directory.
 
         Creates a self-contained directory with weights, vocabulary, and config.
@@ -588,7 +624,7 @@ class TextClassifier:
         bundles everything so they can never get out of sync.
 
         Args:
-            path: Directory path to save the model to.
+            path (str): Directory path to save the model to.
         """
         os.makedirs(path, exist_ok=True)
 
@@ -617,14 +653,14 @@ class TextClassifier:
             json.dump(config, f, indent=2)
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: str) -> "TextClassifier":
         """Load a trained model from a directory.
 
         Args:
-            path: Directory path containing weights.bin, vocab.txt, and config.json.
+            path (str): Directory path containing weights.bin, vocab.txt, and config.json.
 
         Returns:
-            A fitted TextClassifier instance.
+            TextClassifier: A fitted TextClassifier instance.
         """
         # Load config
         with open(os.path.join(path, "config.json"), "r", encoding="utf-8") as f:
@@ -659,14 +695,14 @@ class TextClassifier:
         return classifier
 
     @staticmethod
-    def exists(path):
+    def exists(path: str) -> bool:
         """Check whether a saved model exists at the given path.
 
         Args:
-            path: Directory path to check.
+            path (str): Directory path to check.
 
         Returns:
-            True if all required model files exist.
+            bool: True if all required model files exist.
         """
         return (
             os.path.exists(os.path.join(path, "weights.bin"))
