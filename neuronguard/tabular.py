@@ -270,7 +270,7 @@ class TabularClassifier:
 
         self._is_fitted = True
 
-    def update(self, X, label_index):
+    def update(self, X, label_index, class_weights=None):
         """Continually learn from new records on the fly.
         
         This enables zero-overhead online/continuous learning. The model weights are
@@ -279,29 +279,53 @@ class TabularClassifier:
         Args:
             X: Iterable of lists of floats (features) with the label appended.
             label_index: The index of the label in each record.
+            class_weights: Optional dict mapping class_label -> oversample_multiplier.
         """
         if not self._is_fitted:
             raise RuntimeError("Classifier must be fitted before it can be updated.")
+            
+        if class_weights is None:
+            class_weights = {}
             
         feature_indices = [i for i in range(len(X[0])) if i != label_index]
         
         for record in X:
             label = int(record[label_index])
-            indices = []
-            for feat_idx in feature_indices:
-                try:
-                    val = float(record[feat_idx])
-                    indices.append(self._get_bucket_index(feat_idx, val))
-                except (ValueError, TypeError):
-                    continue
+            features = [record[i] for i in feature_indices]
+            indices = self._get_tokens(features)
                     
             if indices:
-                weight = self.class_weights.get(label, 1)
+                weight = class_weights.get(label, 1)
                 self._field.train_stream(
                     indices, 
                     label, 
                     self.amplify_delta * weight, 
                     self.suppress_delta * weight
+                )
+
+    def unlearn(self, X, label_index):
+        """Surgically unlearn records by applying negative Hebbian deltas.
+        
+        Args:
+            X: Iterable of lists of floats (features) with the label appended.
+            label_index: The index of the label in each record.
+        """
+        if not self._is_fitted:
+            raise RuntimeError("Classifier must be fitted before it can be unlearned.")
+            
+        feature_indices = [i for i in range(len(X[0])) if i != label_index]
+        
+        for record in X:
+            label = int(record[label_index])
+            features = [record[i] for i in feature_indices]
+            indices = self._get_tokens(features)
+                    
+            if indices:
+                self._field.train_stream(
+                    indices, 
+                    label, 
+                    -self.amplify_delta, 
+                    -self.suppress_delta
                 )
 
     # -------------------------------------------------------------------------

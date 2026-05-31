@@ -131,6 +131,11 @@ mise run
 # Example of scripts you can run. Other examples are similar.
 mise run examples:amazon_reviews:download_data
 mise run examples:amazon_reviews:run
+# 2. Semantic Generalization & Continual Learning
+mise run examples:sparse_embeddings:run
+mise run examples:continual_learning:run
+mise run examples:melbourne_cup:run
+mise run examples:team_composition:run
 ```
 
 ## Installing 
