@@ -6,12 +6,6 @@ uv = "latest"
 [env]
 PYO3_USE_ABI3_FORWARD_COMPATIBILITY = 1
 
-# Rust tasks
-[tasks.poc]
-run = "cargo run --no-default-features --bin neuron-poc"
-
-[tasks.run]
-run = "cargo run --no-default-features"
 
 [tasks."build:rust"]
 description = "Build the Rust library and binaries"

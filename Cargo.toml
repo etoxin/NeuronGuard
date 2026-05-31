@@ -20,6 +20,3 @@ name = "neuronguard"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
-[[bin]]
-name = "neuron-poc"
-path = "src/main.rs"
