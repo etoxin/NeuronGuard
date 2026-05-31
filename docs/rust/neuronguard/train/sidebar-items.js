@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["propagate_trainer","train_neuron_connection"]};
