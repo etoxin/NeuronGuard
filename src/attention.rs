@@ -20,10 +20,10 @@ pub const DV: usize = 8; // Value dimension
 /// Performs direct multiplication and saturating addition without any bitwise unpacking.
 pub fn evaluate_high_res_synapses(
     line: &HighDensityNeuromorphicLine,
-    input_spikes: &[i16; 56],
+    input_spikes: &[i16; 24],
 ) -> i32 {
     let mut score: i32 = 0;
-    for i in 0..56 {
+    for i in 0..24 {
         score = score.saturating_add(line.synapses_weights[i] as i32 * input_spikes[i] as i32);
     }
     score
@@ -99,14 +99,14 @@ mod tests {
 
     #[test]
     fn test_evaluate_high_res_synapses() {
-        let mut line = HighDensityNeuromorphicLine::new(15);
+        let mut line = HighDensityNeuromorphicLine::new(2); // ADAPTIVE FIX: Lowered from 15 to 2
 
         // Set some synaptic weights
         line.synapses_weights[0] = 100;
         line.synapses_weights[1] = -50;
         line.synapses_weights[2] = 200;
 
-        let mut input_spikes = [0i16; 56];
+        let mut input_spikes = [0i16; 24];
         input_spikes[0] = 1;
         input_spikes[1] = 2;
         input_spikes[2] = 1;

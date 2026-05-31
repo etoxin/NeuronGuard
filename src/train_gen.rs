@@ -87,12 +87,12 @@ impl NeuronGuardTrainerField {
 
             // 1. Sensory Injection & Potentials Accumulation
             let line = &self.lines[xt];
-            for j in 0..56 {
-                let target_token_id = (xt + j) % self.motor_count;
-                let macro_idx = target_token_id / 1000;
+            for j in 0..24 {
                 let weight = line.synapses_weights[j] as i32;
-
                 if weight != 0 {
+                    let target_token_id = line.target_ids[j] as usize;
+                    let macro_idx = target_token_id / 1000;
+
                     let prev =
                         self.potentials[target_token_id].fetch_add(weight, Ordering::Relaxed);
                     if prev == 0 {
@@ -134,17 +134,11 @@ impl NeuronGuardTrainerField {
 
             // 3. Synaptic Update (Hebbian Rule)
             // Potentiation: reinforce connection to xt_next
-            let j_next = (xt_next + self.motor_count - xt) % self.motor_count;
-            if j_next < 56 {
-                self.lines[xt].adjust_synapse(j_next, 100); // Upgraded from 1 to 100 for stronger associations
-            }
+            self.lines[xt].adjust_synapse(xt_next as u16, 100); // Upgraded from 1 to 100 for stronger associations
 
             // Depression: penalize connection to incorrect prediction
             if prediction != xt_next {
-                let k_pred = (prediction + self.motor_count - xt) % self.motor_count;
-                if k_pred < 56 {
-                    self.lines[xt].adjust_synapse(k_pred, -50); // Upgraded from 1 to 50 for stronger penalty
-                }
+                self.lines[xt].adjust_synapse(prediction as u16, -50); // Reverted back to -50 to prevent cross-linked flooding
             }
 
             // 4. Decay & Periodic Working Memory Flush (applied once every 100/1000 steps to keep the hot path O(1))
@@ -173,9 +167,12 @@ impl NeuronGuardTrainerField {
 
     /// Serializes the final synaptic matrix directly into a flat, contiguous binary array.
     pub fn serialize_weights(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(self.sensory_count * 112);
+        let mut bytes = Vec::with_capacity(self.sensory_count * 96);
         for line in &self.lines {
             for &val in &line.synapses_weights {
+                bytes.extend_from_slice(&val.to_le_bytes());
+            }
+            for &val in &line.target_ids {
                 bytes.extend_from_slice(&val.to_le_bytes());
             }
         }
@@ -188,15 +185,18 @@ impl NeuronGuardTrainerField {
         let mut file = std::fs::File::create(path)?;
 
         // Buffer to hold raw bytes for a chunk of lines
-        let chunk_size = 1002; // 1,002 lines * 112 bytes = 112,224 bytes (multiple of 3 for perfect base64 alignment)
-        let mut chunk_bytes = Vec::with_capacity(chunk_size * 112);
+        let chunk_size = 1000; // 1,000 lines * 96 bytes = 96,000 bytes (multiple of 3 for perfect base64 alignment)
+        let mut chunk_bytes = Vec::with_capacity(chunk_size * 96);
 
         for line in &self.lines {
             for &val in &line.synapses_weights {
                 chunk_bytes.extend_from_slice(&val.to_le_bytes());
             }
+            for &val in &line.target_ids {
+                chunk_bytes.extend_from_slice(&val.to_le_bytes());
+            }
 
-            if chunk_bytes.len() >= chunk_size * 112 {
+            if chunk_bytes.len() >= chunk_size * 96 {
                 let b64_str = base64_encode(&chunk_bytes);
                 file.write_all(b64_str.as_bytes())?;
                 chunk_bytes.clear();
@@ -216,8 +216,8 @@ impl NeuronGuardTrainerField {
     pub fn load_weights_from_b64(&mut self, path: &str) -> std::io::Result<()> {
         let mut file = std::fs::File::open(path)?;
 
-        // We read the file in chunks of 149,632 base64 characters (which decodes to exactly 1,002 lines)
-        let b64_chunk_size = 149_632;
+        // We read the file in chunks of 128,000 base64 characters (which decodes to exactly 1,000 lines)
+        let b64_chunk_size = 128_000;
         let mut b64_buffer = vec![0u8; b64_chunk_size];
 
         let mut line_idx = 0;
@@ -233,11 +233,16 @@ impl NeuronGuardTrainerField {
             let bytes = base64_decode(b64_str);
 
             let mut offset = 0;
-            while offset + 112 <= bytes.len() && line_idx < self.lines.len() {
+            while offset + 96 <= bytes.len() && line_idx < self.lines.len() {
                 let line = &mut self.lines[line_idx];
-                for j in 0..56 {
+                for j in 0..24 {
                     line.synapses_weights[j] =
                         i16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
+                    offset += 2;
+                }
+                for j in 0..24 {
+                    line.target_ids[j] =
+                        u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
                     offset += 2;
                 }
                 line_idx += 1;
@@ -266,10 +271,10 @@ impl NeuronGuardTrainerField {
                 continue;
             }
             let line = &self.lines[xt];
-            for j in 0..56 {
-                let target_token_id = (xt + j) % self.motor_count;
+            for j in 0..24 {
                 let weight = line.synapses_weights[j] as i32;
                 if weight != 0 {
+                    let target_token_id = line.target_ids[j] as usize;
                     let prev =
                         self.potentials[target_token_id].fetch_add(weight, Ordering::Relaxed);
                     if prev == 0 {
@@ -399,8 +404,8 @@ mod tests {
         trainer.train_stream_step_sync(vec![2, 5]);
 
         // Synaptic pathway from 2 to 5 should be potentiated
-        let j_next = (5 + 10 - 2) % 10; // 3
-        assert_eq!(trainer.lines[2].synapses_weights[j_next], 100);
+        assert_eq!(trainer.lines[2].synapses_weights[0], 100);
+        assert_eq!(trainer.lines[2].target_ids[0], 5);
     }
 
     #[test]

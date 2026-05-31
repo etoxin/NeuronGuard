@@ -458,8 +458,20 @@ impl PyPermanentNeuromorphicLine {
 
     #[setter]
     fn set_synapses_weights(&mut self, val: Vec<i16>) {
-        for i in 0..32.min(val.len()) {
+        for i in 0..24.min(val.len()) {
             self.line.synapses_weights[i] = val[i];
+        }
+    }
+
+    #[getter]
+    fn target_ids(&self) -> Vec<u16> {
+        self.line.target_ids.to_vec()
+    }
+
+    #[setter]
+    fn set_target_ids(&mut self, val: Vec<u16>) {
+        for i in 0..24.min(val.len()) {
+            self.line.target_ids[i] = val[i];
         }
     }
 

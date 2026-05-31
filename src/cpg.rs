@@ -61,20 +61,22 @@ mod tests {
     fn test_propagate_cpg_echo() {
         let mut memory_pool = vec![
             HighDensityNeuromorphicLine {
-                synapses_weights: [0; 56],
+                synapses_weights: [0; 24],
+                target_ids: [0; 24],
                 loopback_address: 0,
                 loopback_energy: 0,
                 local_potential: 10,
                 activation_threshold: 15,
-                _padding: [0; 3],
+                _padding: [0; 19],
             },
             HighDensityNeuromorphicLine {
-                synapses_weights: [0; 56],
+                synapses_weights: [0; 24],
+                target_ids: [0; 24],
                 loopback_address: 0, // Echoes back to index 0
                 loopback_energy: 5,
                 local_potential: 20,
                 activation_threshold: 15, // Spikes!
-                _padding: [0; 3],
+                _padding: [0; 19],
             },
         ];
 
@@ -89,12 +91,13 @@ mod tests {
     #[test]
     fn test_decay_potentials_and_accumulators() {
         let mut memory_pool = vec![HighDensityNeuromorphicLine {
-            synapses_weights: [0; 56],
+            synapses_weights: [0; 24],
+            target_ids: [0; 24],
             loopback_address: 0,
             loopback_energy: 10,
             local_potential: 100,
             activation_threshold: 15,
-            _padding: [0; 3],
+            _padding: [0; 19],
         }];
 
         decay_potentials(&mut memory_pool, 0.90);

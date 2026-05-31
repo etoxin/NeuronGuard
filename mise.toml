@@ -20,9 +20,13 @@ VOCAB_SIZE = "1000000"
 description = "Build the Rust library and binaries"
 run = "cargo build --release"
 
-[tasks.test]
+[tasks.rust-test]
 description = "Run all Rust unit tests"
 run = "PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test --no-default-features"
+
+[tasks.test]
+description = "Execute deterministic semantic integration verification over a closed 4-phrase corpus"
+run = "uv run --no-project python run_controlled_tests.py"
 
 [tasks.py-setup]
 description = "Set up the Python virtual environment using uv"

@@ -19,9 +19,13 @@ use std::sync::atomic::{AtomicI32, Ordering};
 #[repr(C, align(128))]
 #[derive(Debug, Clone, Copy)]
 pub struct HighDensityNeuromorphicLine {
-    /// Expanded from 32 to 56 slots. Tracks 56 target token pathways natively.
-    /// Consumes exactly 112 bytes (56 elements * 2 bytes each). Zero unpacking overhead.
-    pub synapses_weights: [i16; 56],
+    /// 24 high-precision synapses tracking target token pathways with deep statistical headroom.
+    /// Consumes exactly 48 bytes (24 elements * 2 bytes each).
+    pub synapses_weights: [i16; 24],
+
+    /// 24 high-precision target token IDs allowing connections to any arbitrary word in the 50,000 vocabulary.
+    /// Consumes exactly 48 bytes (24 elements * 2 bytes each).
+    pub target_ids: [u16; 24],
 
     /// Relative offset pointer for Central Pattern Generator routing (4 Bytes)
     pub loopback_address: u32,
@@ -36,32 +40,60 @@ pub struct HighDensityNeuromorphicLine {
     pub loopback_energy: u8,
 
     /// Tightened padding array to hit the 128-byte silicon boundary perfectly.
-    /// 128 - (112 + 4 + 4 + 4 + 1) = Exactly 3 bytes of structural margin safety.
+    /// 128 - (48 + 48 + 4 + 4 + 4 + 1) = Exactly 19 bytes of structural margin safety.
     /// By ordering fields by alignment, we eliminate compiler-inserted padding.
-    pub _padding: [u8; 3],
+    pub _padding: [u8; 19],
 }
 
 impl HighDensityNeuromorphicLine {
     /// Instantiate a completely sterile, cache-aligned neural line
     pub fn new(initial_threshold: i32) -> Self {
         Self {
-            synapses_weights: [0; 56], // Initialize expanded array
+            synapses_weights: [0; 24],
+            target_ids: [0; 24],
             loopback_address: 0,
             loopback_energy: 0,
             local_potential: 0,
             activation_threshold: initial_threshold,
-            _padding: [0; 3],
+            _padding: [0; 19],
         }
     }
 
     /// Single-pass Hebbian synaptic adjustment step using fast hardware-level saturating addition
     #[inline(always)]
-    pub fn adjust_synapse(&mut self, index: usize, charge: i16) {
-        if index < 56 {
-            // Check against new boundary ceiling
-            // saturating_add guarantees the value locks at boundaries instead of crashing via overflow
-            self.synapses_weights[index] = self.synapses_weights[index].saturating_add(charge);
+    pub fn adjust_synapse(&mut self, target_id: u16, charge: i16) {
+        // 1. Check if the connection already exists
+        for i in 0..24 {
+            if self.target_ids[i] == target_id && self.synapses_weights[i] != 0 {
+                self.synapses_weights[i] = self.synapses_weights[i].saturating_add(charge);
+                return;
+            }
         }
+
+        // 2. If it doesn't exist, find an empty slot (weight is 0)
+        for i in 0..24 {
+            if self.synapses_weights[i] == 0 {
+                self.target_ids[i] = target_id;
+                self.synapses_weights[i] = charge;
+                return;
+            }
+        }
+
+        // 3. If no empty slots, execute autonomous least-significant eviction
+        let mut weakest_idx = 0;
+        let mut weakest_val = self.synapses_weights[0].unsigned_abs();
+
+        for i in 1..24 {
+            let val = self.synapses_weights[i].unsigned_abs();
+            if val < weakest_val {
+                weakest_val = val;
+                weakest_idx = i;
+            }
+        }
+
+        // Evict weakest connection
+        self.target_ids[weakest_idx] = target_id;
+        self.synapses_weights[weakest_idx] = charge;
     }
 }
 
