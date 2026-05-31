@@ -29,15 +29,16 @@ def main():
 
     classifier = TextClassifier(
         num_classes=4,
-        vocab_size=1000,
-        class_names=class_names,
+        vocab_size=10000,
+        class_names=["World", "Sports", "Business", "Sci/Tech"],
+        use_hashed_bigrams=False,
     )
 
     # --- Training --------------------------------------------------------
-    print("--- Training on 120,000 Samples (3 epochs) ---")
+    print("--- Training on 120,000 Samples (5 epochs) ---")
 
     start_time = time.time()
-    classifier.fit(train_path, text_col=[1, 2], label_col=0, epochs=3)
+    classifier.fit(train_path, text_col=[1, 2], label_col=0, epochs=5)
     duration = time.time() - start_time
 
     print(f"Training completed in {duration:.2f}s!\n")

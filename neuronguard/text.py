@@ -59,6 +59,7 @@ class TextClassifier:
         apply_stemming=True,
         vocab_scoring="discriminative",
         class_names=None,
+        use_hashed_bigrams=False,
     ):
         """Initialise a TextClassifier.
 
@@ -82,6 +83,7 @@ class TextClassifier:
         self.apply_stemming = apply_stemming
         self.vocab_scoring = vocab_scoring
         self.class_names = class_names
+        self.use_hashed_bigrams = use_hashed_bigrams
 
         # These are populated during fit() or load()
         self._field = None
@@ -109,7 +111,21 @@ class TextClassifier:
     def _text_to_indices(self, text):
         """Convert text to a list of vocabulary indices."""
         tokens = self._tokenize(text)
-        return [self._vocab_map[t] for t in tokens if t in self._vocab_map]
+        
+        # Unigram indices (lower half of space if bigrams enabled)
+        unigram_space = self.vocab_size // 2 if self.use_hashed_bigrams else self.vocab_size
+        indices = [self._vocab_map[t] for t in tokens if t in self._vocab_map and self._vocab_map[t] < unigram_space]
+        
+        # Hashed bigram indices (upper half of space)
+        if self.use_hashed_bigrams and len(tokens) > 1:
+            import zlib
+            bigram_space = self.vocab_size - unigram_space
+            for i in range(len(tokens) - 1):
+                pair = f"{tokens[i]}_{tokens[i+1]}"
+                bigram_id = (zlib.crc32(pair.encode('utf-8')) % bigram_space) + unigram_space
+                indices.append(bigram_id)
+                
+        return indices
 
     def _seed_weights(self):
         """Pre-seed neuron weights proportional to category distributions.
@@ -158,10 +174,11 @@ class TextClassifier:
                 except (ValueError, IndexError):
                     continue
 
+        unigram_space = self.vocab_size // 2 if self.use_hashed_bigrams else self.vocab_size
         self._vocab_map, self._vocab_list, stats = build_vocab(
             records_for_vocab,
             self.num_classes,
-            self.vocab_size,
+            unigram_space,
             stop_words=self.stop_words,
             scoring=self.vocab_scoring,
             apply_stemming=self.apply_stemming,
@@ -201,10 +218,11 @@ class TextClassifier:
         records = list(records)
 
         # Build vocabulary
+        unigram_space = self.vocab_size // 2 if self.use_hashed_bigrams else self.vocab_size
         self._vocab_map, self._vocab_list, stats = build_vocab(
             records,
             self.num_classes,
-            self.vocab_size,
+            unigram_space,
             stop_words=self.stop_words,
             scoring=self.vocab_scoring,
             apply_stemming=self.apply_stemming,
@@ -422,6 +440,7 @@ class TextClassifier:
             "apply_stemming": self.apply_stemming,
             "vocab_scoring": self.vocab_scoring,
             "class_names": self.class_names,
+            "use_hashed_bigrams": getattr(self, "use_hashed_bigrams", False),
         }
         with open(os.path.join(path, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
@@ -450,6 +469,7 @@ class TextClassifier:
             apply_stemming=config.get("apply_stemming", True),
             vocab_scoring=config.get("vocab_scoring", "discriminative"),
             class_names=config.get("class_names"),
+            use_hashed_bigrams=config.get("use_hashed_bigrams", False),
         )
 
         # Load vocabulary
