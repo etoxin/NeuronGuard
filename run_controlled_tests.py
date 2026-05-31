@@ -16,7 +16,6 @@ import json
 import os
 
 import neuronguard as ng
-import numpy as np
 from neuronguard import NeuronGuardTokenizer
 
 
@@ -70,38 +69,36 @@ def execute_integration_verification():
     print("✅ System Potentiated. Launching Factual Trajectory Trace...")
     eval_prompt = "what color are ducks"
 
-    # Prime TPI Registers
     prompt_ids = [
         tokenizer.vocab[w] for w in eval_prompt.split() if w in tokenizer.vocab
     ]
-    for token_id in prompt_ids:
-        trainer_field.process_step_sync([token_id])
-        trainer_field.decay_potentials(0.95)  # 5% intra-phrase leakage
 
     print(f"\nPrompt Input: {eval_prompt}")
     print("Predicted Trace: ", end="")
 
-    # Greedy Verification Loop
+    # Greedy verification loop: with temperature ~0 and a uniform draw of 0.0, sampling
+    # deterministically returns each token's single strongest learned successor. This walks the
+    # variable-connection bigram graph directly instead of the old global potential field.
+    current_token_id = prompt_ids[-1]
+    generated = []
     for _ in range(5):
-        raw_potentials = np.array(trainer_field.get_potentials(), dtype=np.float32)
-
-        # Apply Contrast Exponentiation (PRD 6.0.0 compliance)
-        max_p = np.max(raw_potentials)
-        logits = (raw_potentials / max_p) ** 3 if max_p > 0 else raw_potentials
-
-        sampled_id = int(np.argmax(logits))
-        if sampled_id == 49999:
+        sampled_id = trainer_field.sample_next_token(current_token_id, temp, 1, 0.0)
+        if sampled_id is None or sampled_id == 49999:
             break
 
         word = tokenizer.inverse_vocab.get(sampled_id, "[Unknown]")
         print(f"{word} ", end="", flush=True)
-
-        # Advance state-machine clocks
-        trainer_field.process_step_sync([sampled_id])
-        trainer_field.decay_potentials(
-            0.90
-        )  # Reverted back to 0.90 as specified in the PRD
+        generated.append(word)
+        current_token_id = sampled_id
     print("\n")
+
+    # The corpus only ever follows "ducks" with "are" or "swim". A faithful bigram model must
+    # continue with one of those, proving learned associations drive generation.
+    assert generated, "model produced no continuation for 'ducks'"
+    assert generated[0] in {"are", "swim"}, (
+        f"expected 'ducks' to be followed by a learned successor (are/swim), got {generated[0]!r}"
+    )
+    print("✅ Semantic trajectory verification PASSED.")
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::gen_memory::HighDensityNeuromorphicLine;
+use crate::gen_memory::{AdjustResult, HighDensityNeuromorphicLine};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -22,6 +22,12 @@ pub struct NeuronGuardTrainerField {
     pub sensory_count: usize,
     pub motor_count: usize,
     pub lines: Vec<HighDensityNeuromorphicLine>,
+    /// Variable-length overflow store, one growable list per sensory line.
+    /// The 24-slot inline core holds each token's strongest successors (cache-resident);
+    /// the long tail of additional `(target_id, weight)` associations lives here. This is what
+    /// gives each neuron a variable fan-out: "galaxy" may use 5 connections total while "the"
+    /// may hold hundreds, without paying for unused slots.
+    pub overflow: Vec<Vec<(u16, i16)>>,
     pub potentials: Vec<AtomicI32>,
     pub macro_potentials: Vec<AtomicI32>, // Added for fast hierarchical WTA search
     pub active_indices: Vec<u32>,         // Added to track active potentials in real-time
@@ -33,6 +39,12 @@ impl NeuronGuardTrainerField {
         let mut lines = Vec::with_capacity(sensory_count);
         for _ in 0..sensory_count {
             lines.push(HighDensityNeuromorphicLine::new(15));
+        }
+
+        // Overflow lists start empty; they only allocate when a line exceeds its 24-slot core.
+        let mut overflow = Vec::with_capacity(sensory_count);
+        for _ in 0..sensory_count {
+            overflow.push(Vec::new());
         }
 
         let mut potentials = Vec::with_capacity(motor_count);
@@ -53,10 +65,43 @@ impl NeuronGuardTrainerField {
             sensory_count,
             motor_count,
             lines,
+            overflow,
             potentials,
             macro_potentials,
             active_indices,
         }
+    }
+
+    /// Applies a Hebbian charge to the connection `xt -> target`, transparently spanning the
+    /// cache-aligned hot core and the variable-length overflow store. No association is ever
+    /// silently dropped: weak newcomers and evicted residents are routed to overflow.
+    fn potentiate(&mut self, xt: usize, target_id: u16, charge: i16) {
+        match self.lines[xt].adjust_synapse_core(target_id, charge) {
+            AdjustResult::Applied => {}
+            AdjustResult::Overflow => {
+                Self::overflow_add(&mut self.overflow[xt], target_id, charge);
+            }
+            AdjustResult::Evicted {
+                target_id: evicted_target,
+                weight: evicted_weight,
+            } => {
+                // The newcomer is now resident in the core; the displaced (stronger-than-average
+                // but now second-tier) resident moves to overflow so its history is preserved.
+                Self::overflow_add(&mut self.overflow[xt], evicted_target, evicted_weight);
+            }
+        }
+    }
+
+    /// Adds or accumulates a `(target_id, weight)` pair in a line's overflow store.
+    #[inline]
+    fn overflow_add(store: &mut Vec<(u16, i16)>, target_id: u16, charge: i16) {
+        for entry in store.iter_mut() {
+            if entry.0 == target_id {
+                entry.1 = entry.1.saturating_add(charge);
+                return;
+            }
+        }
+        store.push((target_id, charge));
     }
 
     /// Resets all potentials to zero.
@@ -72,6 +117,11 @@ impl NeuronGuardTrainerField {
 
     /// Executes a single-pass Spike-Driven Hebbian Plasticity training step on a stream of token indices.
     /// Completely bypasses the processor's floating-point ALUs.
+    ///
+    /// Each adjacent `(xt -> xt_next)` pair potentiates the corresponding synapse. Because the
+    /// line now owns a variable-length overflow store, every distinct successor a token sees is
+    /// retained and its strength reflects how often that transition occurred in the corpus. This
+    /// turns the field into a faithful weighted bigram graph rather than a churning 24-slot cache.
     pub fn train_stream_step_sync(&mut self, token_indices: Vec<u32>) {
         if token_indices.len() < 2 {
             return;
@@ -79,191 +129,194 @@ impl NeuronGuardTrainerField {
 
         for t in 0..token_indices.len() - 1 {
             let xt = token_indices[t] as usize;
-            let xt_next = token_indices[t + 1] as usize;
+            let xt_next = token_indices[t + 1];
 
-            if xt >= self.sensory_count || xt_next >= self.motor_count {
+            if xt >= self.sensory_count || (xt_next as usize) >= self.motor_count {
                 continue;
             }
 
-            // 1. Sensory Injection & Potentials Accumulation
-            let line = &self.lines[xt];
-            for j in 0..24 {
-                let weight = line.synapses_weights[j] as i32;
-                if weight != 0 {
-                    let target_token_id = line.target_ids[j] as usize;
-                    let macro_idx = target_token_id / 1000;
-
-                    let prev =
-                        self.potentials[target_token_id].fetch_add(weight, Ordering::Relaxed);
-                    if prev == 0 {
-                        self.active_indices.push(target_token_id as u32);
-                    }
-                    if macro_idx < self.macro_potentials.len() {
-                        self.macro_potentials[macro_idx].fetch_add(weight, Ordering::Relaxed);
-                    }
-                }
-            }
-
-            // 2. Local Error Evaluation (Hierarchical WTA Search: O(1) cache-resident)
-            // Tier-1: Find winning macro cluster (50 elements)
-            let mut winning_cluster = 0;
-            let mut max_macro_pot = i32::MIN;
-            for i in 0..self.macro_potentials.len() {
-                let pot = self.macro_potentials[i].load(Ordering::Relaxed);
-                if pot > max_macro_pot {
-                    max_macro_pot = pot;
-                    winning_cluster = i;
-                }
-            }
-
-            // Tier-2: Find winning token within the winning cluster (1,000 elements)
-            // Skip micro search if all potentials are zero (max_macro_pot <= 0)
-            let mut prediction = 0;
-            if max_macro_pot > 0 {
-                let start_idx = winning_cluster * 1000;
-                let end_idx = (start_idx + 1000).min(self.motor_count);
-                let mut max_potential = i32::MIN;
-                for i in start_idx..end_idx {
-                    let pot = self.potentials[i].load(Ordering::Relaxed);
-                    if pot > max_potential {
-                        max_potential = pot;
-                        prediction = i;
-                    }
-                }
-            }
-
-            // 3. Synaptic Update (Hebbian Rule)
-            // Potentiation: reinforce connection to xt_next
-            self.lines[xt].adjust_synapse(xt_next as u16, 100); // Upgraded from 1 to 100 for stronger associations
-
-            // Depression: penalize connection to incorrect prediction
-            if prediction != xt_next {
-                self.lines[xt].adjust_synapse(prediction as u16, -50); // Reverted back to -50 to prevent cross-linked flooding
-            }
-
-            // 4. Decay & Periodic Working Memory Flush (applied once every 100/1000 steps to keep the hot path O(1))
-            if t % 1000 == 0 {
-                // Periodic flush of short-term working memory to prevent active_indices accumulation
-                self.reset_potentials();
-            } else if t % 100 == 0 {
-                for &idx in &self.active_indices {
-                    let idx = idx as usize;
-                    let current = self.potentials[idx].load(Ordering::Relaxed);
-                    if current != 0 {
-                        let decayed = (current as f32 * 0.90) as i32;
-                        self.potentials[idx].store(decayed, Ordering::Relaxed);
-                    }
-                }
-                for m_pot in &self.macro_potentials {
-                    let current = m_pot.load(Ordering::Relaxed);
-                    if current != 0 {
-                        let decayed = (current as f32 * 0.90) as i32;
-                        m_pot.store(decayed, Ordering::Relaxed);
-                    }
-                }
-            }
+            // Hebbian potentiation: reinforce the observed transition. The small per-observation
+            // charge accumulates across the corpus, so frequent successors end up with the
+            // largest weights and naturally win during weighted sampling. We deliberately do NOT
+            // apply any depression here: penalizing non-observed predictions was eroding the very
+            // bigram statistics the model depends on.
+            self.potentiate(xt, xt_next as u16, 4);
         }
     }
 
-    /// Serializes the final synaptic matrix directly into a flat, contiguous binary array.
-    pub fn serialize_weights(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(self.sensory_count * 96);
-        for line in &self.lines {
-            for &val in &line.synapses_weights {
-                bytes.extend_from_slice(&val.to_le_bytes());
-            }
-            for &val in &line.target_ids {
-                bytes.extend_from_slice(&val.to_le_bytes());
+    /// Collects every learned successor `(target_id, weight)` for a token, merging the
+    /// cache-aligned hot core with the variable-length overflow store. Weights are clamped to be
+    /// strictly positive so they can act directly as sampling masses.
+    pub fn successors(&self, xt: usize) -> Vec<(u16, i32)> {
+        if xt >= self.lines.len() {
+            return Vec::new();
+        }
+        let line = &self.lines[xt];
+        let mut out: Vec<(u16, i32)> = Vec::with_capacity(24 + self.overflow[xt].len());
+        for j in 0..24 {
+            let w = line.synapses_weights[j];
+            if w > 0 {
+                out.push((line.target_ids[j], w as i32));
             }
         }
-        bytes
+        for &(target_id, w) in &self.overflow[xt] {
+            if w > 0 {
+                out.push((target_id, w as i32));
+            }
+        }
+        out
     }
 
-    /// Serializes and writes the synaptic matrix directly to a base64-encoded text file in chunks.
-    /// This prevents memory spikes and string buffer overflows on large matrices (up to 2 GB).
+    /// Samples the next token directly from a token's learned successor distribution, using
+    /// temperature scaling and optional top-k truncation. This replaces the old global-potential
+    /// field sampling, which mixed unrelated activations together and produced incoherent output.
+    ///
+    /// Returns `None` if the token has no learned successors (e.g. an unseen final token), letting
+    /// the caller decide how to fall back.
+    pub fn sample_next_token(
+        &self,
+        xt: usize,
+        temperature: f32,
+        top_k: usize,
+        rng_uniform: f32,
+    ) -> Option<u32> {
+        let mut cands = self.successors(xt);
+        if cands.is_empty() {
+            return None;
+        }
+
+        // Top-k truncation: keep only the strongest successors.
+        if top_k > 0 && cands.len() > top_k {
+            cands.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+            cands.truncate(top_k);
+        }
+
+        // Temperature-scaled softmax over the (positive) learned weights.
+        let temp = temperature.max(1e-3);
+        let max_w = cands.iter().map(|&(_, w)| w).max().unwrap_or(0) as f32;
+        let mut probs: Vec<f32> = cands
+            .iter()
+            .map(|&(_, w)| (((w as f32) - max_w) / (max_w.max(1.0) * temp)).exp())
+            .collect();
+        let sum: f32 = probs.iter().sum();
+        if sum <= 0.0 {
+            return Some(cands[0].0 as u32);
+        }
+        for p in probs.iter_mut() {
+            *p /= sum;
+        }
+
+        // Inverse-CDF sample using the caller-provided uniform draw in [0, 1).
+        let mut acc = 0.0;
+        let r = rng_uniform.clamp(0.0, 1.0 - f32::EPSILON);
+        for (idx, &p) in probs.iter().enumerate() {
+            acc += p;
+            if r < acc {
+                return Some(cands[idx].0 as u32);
+            }
+        }
+        Some(cands[cands.len() - 1].0 as u32)
+    }
+
+    /// Serializes and writes the synaptic matrix to a base64-encoded text file using a
+    /// self-describing, variable-length format. Each line is encoded as:
+    ///   `[u32 count][ (u16 target, i16 weight) * count ]`
+    /// covering the merged core + overflow successors, so per-token fan-out is preserved exactly.
+    ///
+    /// A short magic header (`NGV2`) plus the line count lets the loader reject incompatible
+    /// (legacy fixed-size) model cards with a clear message instead of corrupting state.
     pub fn save_weights_to_b64(&self, path: &str) -> std::io::Result<()> {
         let mut file = std::fs::File::create(path)?;
 
-        // Buffer to hold raw bytes for a chunk of lines
-        let chunk_size = 1000; // 1,000 lines * 96 bytes = 96,000 bytes (multiple of 3 for perfect base64 alignment)
-        let mut chunk_bytes = Vec::with_capacity(chunk_size * 96);
+        let mut raw: Vec<u8> = Vec::new();
+        raw.extend_from_slice(MAGIC);
+        raw.extend_from_slice(&(self.lines.len() as u32).to_le_bytes());
 
-        for line in &self.lines {
-            for &val in &line.synapses_weights {
-                chunk_bytes.extend_from_slice(&val.to_le_bytes());
-            }
-            for &val in &line.target_ids {
-                chunk_bytes.extend_from_slice(&val.to_le_bytes());
+        for xt in 0..self.lines.len() {
+            let succ = self.successors(xt);
+            raw.extend_from_slice(&(succ.len() as u32).to_le_bytes());
+            for (target_id, weight) in succ {
+                raw.extend_from_slice(&target_id.to_le_bytes());
+                // Clamp to i16 range for compact on-disk storage.
+                let w = weight.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+                raw.extend_from_slice(&w.to_le_bytes());
             }
 
-            if chunk_bytes.len() >= chunk_size * 96 {
-                let b64_str = base64_encode(&chunk_bytes);
-                file.write_all(b64_str.as_bytes())?;
-                chunk_bytes.clear();
+            // Flush in ~96 KB chunks (aligned to 3 bytes for clean base64) to bound memory.
+            if raw.len() >= 96_000 {
+                let aligned = raw.len() - (raw.len() % 3);
+                let b64 = base64_encode(&raw[..aligned]);
+                file.write_all(b64.as_bytes())?;
+                raw.drain(..aligned);
             }
         }
 
-        if !chunk_bytes.is_empty() {
-            let b64_str = base64_encode(&chunk_bytes);
-            file.write_all(b64_str.as_bytes())?;
+        if !raw.is_empty() {
+            let b64 = base64_encode(&raw);
+            file.write_all(b64.as_bytes())?;
         }
 
         Ok(())
     }
 
-    /// Loads and deserializes the synaptic matrix from a base64-encoded text file in chunks.
-    /// This prevents memory spikes and string buffer overflows on large matrices (up to 2 GB).
+    /// Loads a variable-length model card produced by `save_weights_to_b64`. The strongest 24
+    /// successors per token are reinstated into the cache-aligned hot core; the remainder is
+    /// placed in the overflow store, reproducing the in-memory layout deterministically.
     pub fn load_weights_from_b64(&mut self, path: &str) -> std::io::Result<()> {
         let mut file = std::fs::File::open(path)?;
+        let mut b64 = String::new();
+        file.read_to_string(&mut b64)?;
+        let bytes = base64_decode(&b64);
 
-        // We read the file in chunks of 128,000 base64 characters (which decodes to exactly 1,000 lines)
-        let b64_chunk_size = 128_000;
-        let mut b64_buffer = vec![0u8; b64_chunk_size];
+        let invalid =
+            |msg: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, msg.to_string());
 
-        let mut line_idx = 0;
-        loop {
-            let bytes_read = read_exact_or_eof(&mut file, &mut b64_buffer)?;
-            if bytes_read == 0 {
-                break;
-            }
-
-            let b64_str = std::str::from_utf8(&b64_buffer[..bytes_read])
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-            let bytes = base64_decode(b64_str);
-
-            let mut offset = 0;
-            while offset + 96 <= bytes.len() && line_idx < self.lines.len() {
-                let line = &mut self.lines[line_idx];
-                for j in 0..24 {
-                    line.synapses_weights[j] =
-                        i16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
-                    offset += 2;
-                }
-                for j in 0..24 {
-                    line.target_ids[j] =
-                        u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
-                    offset += 2;
-                }
-                line_idx += 1;
-            }
-        }
-
-        if line_idx != self.lines.len() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "Synaptic weights file size mismatch: expected {} lines, loaded {} lines",
-                    self.lines.len(),
-                    line_idx
-                ),
+        if bytes.len() < 8 || &bytes[0..4] != MAGIC {
+            return Err(invalid(
+                "Unrecognized or legacy model card. Please retrain with the current version (the \
+                 synaptic format changed to support variable connections per neuron).",
             ));
         }
 
+        let line_count = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+        if line_count != self.lines.len() {
+            return Err(invalid(&format!(
+                "Synaptic weights file mismatch: file has {} lines, field expects {}",
+                line_count,
+                self.lines.len()
+            )));
+        }
+
+        let mut offset = 8usize;
+        for xt in 0..self.lines.len() {
+            self.lines[xt] = HighDensityNeuromorphicLine::new(15);
+            self.overflow[xt].clear();
+
+            if offset + 4 > bytes.len() {
+                return Err(invalid("Truncated model card: missing successor count"));
+            }
+            let count = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+            offset += 4;
+
+            for _ in 0..count {
+                if offset + 4 > bytes.len() {
+                    return Err(invalid("Truncated model card: missing successor entry"));
+                }
+                let target_id = u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
+                offset += 2;
+                let weight = i16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
+                offset += 2;
+                // Route through the core/overflow promotion logic so the strongest 24 land in
+                // cache-aligned memory just as they did during training.
+                self.potentiate(xt, target_id, weight);
+            }
+        }
+
         Ok(())
     }
 
-    /// Processes a stream of token indices synchronously for inference.
+    /// Processes a stream of token indices synchronously for inference. Retained for compatibility;
+    /// generation now samples directly from learned successors via `sample_next_token`.
     pub fn process_step_sync(&mut self, token_indices: Vec<u32>) {
         for &xt in &token_indices {
             let xt = xt as usize;
@@ -305,18 +358,8 @@ impl NeuronGuardTrainerField {
     }
 }
 
-/// Helper function to read exactly `buf.len()` bytes or stop at EOF.
-fn read_exact_or_eof(file: &mut std::fs::File, buf: &mut [u8]) -> std::io::Result<usize> {
-    let mut total_read = 0;
-    while total_read < buf.len() {
-        let bytes_read = file.read(&mut buf[total_read..])?;
-        if bytes_read == 0 {
-            break;
-        }
-        total_read += bytes_read;
-    }
-    Ok(total_read)
-}
+/// Magic header identifying the variable-length ("NGV2") synaptic model-card format.
+const MAGIC: &[u8; 4] = b"NGV2";
 
 /// High-performance, zero-dependency Base64 encoder.
 pub fn base64_encode(bytes: &[u8]) -> String {
@@ -403,9 +446,75 @@ mod tests {
         // Train on sequence: 2 -> 5
         trainer.train_stream_step_sync(vec![2, 5]);
 
-        // Synaptic pathway from 2 to 5 should be potentiated
-        assert_eq!(trainer.lines[2].synapses_weights[0], 100);
+        // Synaptic pathway from 2 to 5 should be potentiated with one observation's charge.
+        assert_eq!(trainer.lines[2].synapses_weights[0], 4);
         assert_eq!(trainer.lines[2].target_ids[0], 5);
+
+        // Repeated observations accumulate strength.
+        trainer.train_stream_step_sync(vec![2, 5]);
+        assert_eq!(trainer.lines[2].synapses_weights[0], 8);
+    }
+
+    #[test]
+    fn test_variable_fan_out_overflow() {
+        // A token observed before 30 distinct successors should retain ALL of them:
+        // 24 in the cache-aligned core and the remaining 6 in the overflow store.
+        let mut trainer = NeuronGuardTrainerField::new(100, 100);
+        for next in 1..=30u32 {
+            trainer.train_stream_step_sync(vec![0, next]);
+        }
+
+        let succ = trainer.successors(0);
+        assert_eq!(succ.len(), 30, "all 30 successors must be retained");
+        assert!(
+            !trainer.overflow[0].is_empty(),
+            "overflow store must be used"
+        );
+
+        // A rare token with few successors stays tiny (no overflow allocation).
+        trainer.train_stream_step_sync(vec![50, 51]);
+        assert_eq!(trainer.successors(50).len(), 1);
+        assert!(trainer.overflow[50].is_empty());
+    }
+
+    #[test]
+    fn test_variable_weights_roundtrip() {
+        let mut trainer = NeuronGuardTrainerField::new(100, 100);
+        for next in 1..=30u32 {
+            // Vary frequency so weights differ across successors.
+            for _ in 0..next {
+                trainer.train_stream_step_sync(vec![0, next]);
+            }
+        }
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("ng_test_weights.txt");
+        let path_str = path.to_str().unwrap();
+        trainer.save_weights_to_b64(path_str).unwrap();
+
+        let mut loaded = NeuronGuardTrainerField::new(100, 100);
+        loaded.load_weights_from_b64(path_str).unwrap();
+
+        let mut a = trainer.successors(0);
+        let mut b = loaded.successors(0);
+        a.sort_unstable();
+        b.sort_unstable();
+        assert_eq!(a, b, "successor distribution must survive serialization");
+
+        let _ = std::fs::remove_file(path_str);
+    }
+
+    #[test]
+    fn test_legacy_model_card_rejected() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("ng_legacy_weights.txt");
+        let path_str = path.to_str().unwrap();
+        // Write a blob without the NGV2 magic header.
+        std::fs::write(path_str, base64_encode(b"OLDFORMATDATA....")).unwrap();
+
+        let mut loaded = NeuronGuardTrainerField::new(10, 10);
+        assert!(loaded.load_weights_from_b64(path_str).is_err());
+        let _ = std::fs::remove_file(path_str);
     }
 
     #[test]

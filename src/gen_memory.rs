@@ -59,30 +59,42 @@ impl HighDensityNeuromorphicLine {
         }
     }
 
-    /// Single-pass Hebbian synaptic adjustment step using fast hardware-level saturating addition
+    /// Single-pass Hebbian synaptic adjustment step using fast hardware-level saturating addition.
+    ///
+    /// This operates ONLY on the 24-slot cache-aligned hot core. It returns:
+    ///   - `AdjustResult::Applied`  if the target already lived in the core or fit in a free slot.
+    ///   - `AdjustResult::Overflow` if the core is full and the new target does not belong here
+    ///     (it should be routed to the line's variable-length overflow store instead).
+    ///   - `AdjustResult::Evicted { target_id, weight }` if the new target was strong enough to
+    ///     displace the weakest resident, in which case the evicted pair should be pushed to the
+    ///     overflow store so no learned association is ever lost.
+    ///
+    /// Unlike the previous design, the hot core is now a *cache* of the strongest synapses rather
+    /// than a hard 24-connection ceiling. Variable fan-out lives in the line's overflow store, so
+    /// rare words like "galaxy" stay tiny while frequent words like "the" can hold hundreds of
+    /// successors.
     #[inline(always)]
-    pub fn adjust_synapse(&mut self, target_id: u16, charge: i16) {
-        // 1. Check if the connection already exists
+    pub fn adjust_synapse_core(&mut self, target_id: u16, charge: i16) -> AdjustResult {
+        // 1. Check if the connection already exists in the hot core.
         for i in 0..24 {
             if self.target_ids[i] == target_id && self.synapses_weights[i] != 0 {
                 self.synapses_weights[i] = self.synapses_weights[i].saturating_add(charge);
-                return;
+                return AdjustResult::Applied;
             }
         }
 
-        // 2. If it doesn't exist, find an empty slot (weight is 0)
+        // 2. If it doesn't exist, find an empty slot (weight is 0).
         for i in 0..24 {
             if self.synapses_weights[i] == 0 {
                 self.target_ids[i] = target_id;
                 self.synapses_weights[i] = charge;
-                return;
+                return AdjustResult::Applied;
             }
         }
 
-        // 3. If no empty slots, execute autonomous least-significant eviction
+        // 3. Core is full. Find the weakest resident.
         let mut weakest_idx = 0;
         let mut weakest_val = self.synapses_weights[0].unsigned_abs();
-
         for i in 1..24 {
             let val = self.synapses_weights[i].unsigned_abs();
             if val < weakest_val {
@@ -91,10 +103,40 @@ impl HighDensityNeuromorphicLine {
             }
         }
 
-        // Evict weakest connection
-        self.target_ids[weakest_idx] = target_id;
-        self.synapses_weights[weakest_idx] = charge;
+        // Only promote the newcomer into the core if it is genuinely stronger than the weakest
+        // resident; otherwise it belongs in the overflow store. This keeps the hottest synapses
+        // resident in cache-aligned memory while still preserving the long tail.
+        if charge.unsigned_abs() > weakest_val {
+            let evicted_target = self.target_ids[weakest_idx];
+            let evicted_weight = self.synapses_weights[weakest_idx];
+            self.target_ids[weakest_idx] = target_id;
+            self.synapses_weights[weakest_idx] = charge;
+            AdjustResult::Evicted {
+                target_id: evicted_target,
+                weight: evicted_weight,
+            }
+        } else {
+            AdjustResult::Overflow
+        }
     }
+
+    /// Backwards-compatible helper retained for tests and the legacy single-line API.
+    /// Performs the same core adjustment but silently discards overflow routing information.
+    #[inline(always)]
+    pub fn adjust_synapse(&mut self, target_id: u16, charge: i16) {
+        let _ = self.adjust_synapse_core(target_id, charge);
+    }
+}
+
+/// Outcome of a hot-core synaptic adjustment, used to drive variable-length overflow routing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdjustResult {
+    /// The adjustment was fully absorbed by the 24-slot cache-aligned core.
+    Applied,
+    /// The core is full and the newcomer was weaker than every resident; route it to overflow.
+    Overflow,
+    /// The newcomer displaced a weaker resident; push the returned pair to overflow.
+    Evicted { target_id: u16, weight: i16 },
 }
 
 pub struct AtomicPotentialState {

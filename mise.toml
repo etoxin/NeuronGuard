@@ -5,8 +5,8 @@ python = "3.12"
 
 [env]
 TEMPERATURE = "0.6"
-TRAIN_BOOKS = "50"
-START_ID = "400"
+TRAIN_BOOKS = "500"
+START_ID = "1"
 BOOK_URLS = ""
 
 # Toggle configuration tiers by commenting out/in targets

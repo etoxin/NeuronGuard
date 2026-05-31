@@ -24,6 +24,7 @@ from neuronguard import NeuronGuardTokenizer
 def chat():
     vocab_size = int(os.environ.get("VOCAB_SIZE", 50000))
     temperature = float(os.environ.get("TEMPERATURE", 0.6))
+    top_k = int(os.environ.get("TOP_K", 40))
 
     print("======================================================================")
     print(f"🧠 Scaling Network Allocation Layer: Horizontal Depth = {vocab_size} Rows")
@@ -87,62 +88,47 @@ def chat():
             if not prompt_ids:
                 continue
 
-            # Reset potentials for a clean generation session
-            trainer_field.reset_potentials()
-
-            # Process seed prompt to establish context
-            trainer_field.process_step_sync(prompt_ids)
-
             generated_sequence = []
             current_token_id = prompt_ids[-1]
+
+            # Light recency penalty: discourage immediate verbatim repetition without the old
+            # hard 15-token ban that forced the model off its learned paths.
+            recent_window = 4
 
             max_generation_length = 30
             print("🧠 NeuronGuard: ", end="", flush=True)
 
             for _ in range(max_generation_length):
-                raw_potentials = np.array(
-                    trainer_field.get_potentials(), dtype=np.float32
+                # Sample directly from the current token's LEARNED successor distribution
+                # (cache-aligned core + variable-length overflow), weighted by synapse strength.
+                sampled_token_id = trainer_field.sample_next_token(
+                    current_token_id,
+                    temperature,
+                    top_k,
+                    float(np.random.random()),
                 )
 
-                # 1. HARD REFRACTORY FILTER: Absolute suppression of recently fired ghosts
-                for token_id in set(generated_sequence[-15:]):
-                    raw_potentials[token_id] = -9999.0
+                # No learned successor (dead-end token): stop gracefully.
+                if sampled_token_id is None:
+                    break
 
-                # 2. LOGIT NORMALIZATION: Scale down massive integer steps before exponential math
-                max_potential = np.max(raw_potentials)
-                if max_potential > 0:
-                    normalized_logits = raw_potentials / max_potential
-                else:
-                    normalized_logits = raw_potentials
+                # Avoid trivial immediate loops (a -> b -> a -> b ...): if we just emitted this
+                # token very recently, take one more independent draw before giving up.
+                if sampled_token_id in generated_sequence[-recent_window:]:
+                    retry = trainer_field.sample_next_token(
+                        current_token_id,
+                        temperature,
+                        top_k,
+                        float(np.random.random()),
+                    )
+                    if retry is not None:
+                        sampled_token_id = retry
 
-                # Apply Temperature over the normalized field
-                scaled_logits = normalized_logits / max(temperature, 1e-5)
-
-                # Stable Softmax execution
-                exp_logits = np.exp(scaled_logits - np.max(scaled_logits))
-                probabilities = exp_logits / exp_logits.sum()
-
-                # Top-10 sampling pool filter
-                top_indices = np.argpartition(probabilities, -10)[-10:]
-                top_probs = probabilities[top_indices]
-
-                sum_top_probs = top_probs.sum()
-                if sum_top_probs > 0:
-                    top_probs /= sum_top_probs
-                else:
-                    top_probs = np.ones_like(top_probs) / len(top_probs)
-
-                sampled_token_id = int(np.random.choice(top_indices, p=top_probs))
-
-                if sampled_token_id == 49999:  # Check EOS boundary
+                if sampled_token_id == 50256:  # GPT-2 <|endoftext|> boundary
                     break
 
                 generated_sequence.append(sampled_token_id)
                 current_token_id = sampled_token_id
-
-                # Advance the event step and decay state balances by 10%
-                trainer_field.process_step_sync([current_token_id])
-                trainer_field.decay_potentials(0.90)
 
             # Reconstruct and print final sentence layout
             response = tokenizer.decode(generated_sequence)

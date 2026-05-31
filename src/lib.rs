@@ -645,6 +645,26 @@ impl PyNeuronGuardTrainerField {
     fn get_potentials(&self) -> Vec<i32> {
         self.trainer.get_potentials()
     }
+
+    /// Returns the learned `(target_id, weight)` successors for a token, merging the
+    /// cache-aligned hot core with the variable-length overflow store.
+    fn successors(&self, token_id: usize) -> Vec<(u16, i32)> {
+        self.trainer.successors(token_id)
+    }
+
+    /// Samples the next token from `token_id`'s learned successor distribution.
+    /// `rng_uniform` must be a uniform draw in [0, 1) supplied by the caller (e.g. NumPy),
+    /// keeping randomness controllable from Python. Returns `None` for tokens with no successors.
+    fn sample_next_token(
+        &self,
+        token_id: usize,
+        temperature: f32,
+        top_k: usize,
+        rng_uniform: f32,
+    ) -> Option<u32> {
+        self.trainer
+            .sample_next_token(token_id, temperature, top_k, rng_uniform)
+    }
 }
 
 #[cfg(feature = "extension-module")]
