@@ -9,8 +9,6 @@ This example introduces the core concepts of NeuronGuard through its Python SDK:
 
 import os
 import shutil
-import tempfile
-import time
 
 from neuronguard import TextClassifier, TabularClassifier
 import neuronguard as ng
@@ -18,7 +16,7 @@ import neuronguard as ng
 
 def main():
     print("====================================================================")
-    print("🧠 Welcome to NeuronGuard: Getting Started Guide 🧠")
+    print("  Welcome to NeuronGuard: Getting Started Guide")
     print("====================================================================\n")
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -97,7 +95,7 @@ def main():
     shutil.rmtree(model_dir, ignore_errors=True)
 
     print("\n====================================================================")
-    print("🎉 Congratulations! You have completed the Getting Started Guide! 🎉")
+    print("  Congratulations! You have completed the Getting Started Guide!  ")
     print("====================================================================")
 
 

@@ -5,3 +5,10 @@ uv = "latest"
 [tasks.run]
 description = "Run the NeuronGuard High-Frequency Financial Fraud Scanner"
 run = "uv run --no-project python main.py"
+
+[tasks.download_data]
+description = "Download Credit Card Fraud dataset subset"
+run = """
+mkdir -p data
+curl -s -r 0-10485760 -o data/creditcard_subset.csv https://raw.githubusercontent.com/nsethi31/Kaggle-Data-Credit-Card-Fraud-Detection/master/creditcard.csv
+"""

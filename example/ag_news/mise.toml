@@ -5,3 +5,11 @@ uv = "latest"
 [tasks.run]
 description = "Run the AG News Python classification PoC"
 run = "uv run --no-project python main.py"
+
+[tasks.download_data]
+description = "Download AG News dataset"
+run = """
+mkdir -p data
+curl -s -o data/train.csv https://raw.githubusercontent.com/mhjabreel/CharCnn_Keras/master/data/ag_news_csv/train.csv
+curl -s -o data/test.csv https://raw.githubusercontent.com/mhjabreel/CharCnn_Keras/master/data/ag_news_csv/test.csv
+"""

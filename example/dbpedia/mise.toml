@@ -9,3 +9,11 @@ run = "uv run --no-project python main.py"
 [tasks.benchmark]
 description = "Run the PyTorch vs NeuronGuard DBpedia benchmark"
 run = "uv run --no-project python pytorch_benchmark.py"
+
+[tasks.download_data]
+description = "Download DBpedia dataset"
+run = """
+curl -s -o dbpedia_csv.tgz https://s3.amazonaws.com/fast-ai-nlp/dbpedia_csv.tgz
+tar -xzf dbpedia_csv.tgz
+rm dbpedia_csv.tgz
+"""
