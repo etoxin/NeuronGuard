@@ -30,3 +30,7 @@ example/fraud_scanner/data/
 *.txt
 .venv/
 .mise/
+
+# Compiled Python extensions (placed by maturin)
+neuronguard/*.so
+neuronguard/*.pyd
