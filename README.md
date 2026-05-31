@@ -137,6 +137,9 @@ mise run examples:sparse_embeddings:run
 mise run examples:amazon_reviews:download_data
 mise run examples:amazon_reviews:run
 
+mise run examples:stackoverflow:download_data
+mise run examples:stackoverflow:run
+
 mise run examples:dbpedia:download_data
 mise run examples:dbpedia:run
 ```
