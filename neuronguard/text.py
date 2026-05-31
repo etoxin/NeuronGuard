@@ -250,6 +250,25 @@ class TextClassifier:
 
         self._is_fitted = True
 
+    def update_records(self, records):
+        """Continually learn from new records on the fly without rebuilding the vocabulary.
+        
+        This enables zero-overhead online/continuous learning. The model weights are
+        updated instantly. Words not in the original vocabulary are ignored.
+        
+        Args:
+            records: Iterable of (label, text) tuples.
+        """
+        if not self._is_fitted:
+            raise RuntimeError("Classifier must be fitted before it can be updated.")
+            
+        for label, text in records:
+            indices = self._text_to_indices(text)
+            if indices:
+                self._field.train_stream(
+                    indices, label, self.amplify_delta, self.suppress_delta
+                )
+
     # -------------------------------------------------------------------------
     # Prediction
     # -------------------------------------------------------------------------

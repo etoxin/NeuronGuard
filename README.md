@@ -76,7 +76,18 @@ classifier.print_explanation("urgent meeting to reset password")
 #   'reset     ' -> Spam: +105w
 ```
 
-### 4. Raw Rust Batch API (GIL-Free)
+### 4. Continuous Online Learning
+Because NeuronGuard uses biological topological plasticity instead of backpropagation, models can be updated on the fly without retraining from scratch.
+
+```python
+# 1. A stream of new labelled data arrives in production
+correction = [(1, "my account upgrade to the premium plan failed")]
+
+# 2. Update the model instantly (zero-overhead, <1ms)
+classifier.update_records(correction)
+```
+
+### 5. Raw Rust Batch API (GIL-Free)
 For ultimate performance, bypass the high-level classes and write batch processing loops using the raw Rust `NeuronGuardField` directly.
 
 ```python
@@ -108,8 +119,9 @@ mise run examples:getting_started_text:run
 mise run examples:getting_started_tabular:run
 mise run examples:getting_started_batch:run
 
-# 3. See 100% Transparent AI in action
+# 3. Transparent AI & Continuous Learning
 mise run examples:diagnostics_mode:run
+mise run examples:continuous_learning:run
 
 # 4. Large-Scale Benchmarks
 mise run examples:ag_news:download_data
