@@ -2,11 +2,11 @@
 python = "3.12"
 uv = "latest"
 
-[tasks.run]
+[tasks."examples:fraud_scanner:run"]
 description = "Run the NeuronGuard High-Frequency Financial Fraud Scanner"
 run = "uv run --no-project python main.py"
 
-[tasks.download_data]
+[tasks."examples:fraud_scanner:download_data"]
 description = "Download Credit Card Fraud dataset subset"
 run = """
 mkdir -p data

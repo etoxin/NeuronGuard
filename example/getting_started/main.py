@@ -4,15 +4,15 @@ NeuronGuard: Getting Started Guide
 This example introduces the core concepts of NeuronGuard through its Python SDK:
 1. TextClassifier: High-level API for text classification.
 2. TabularClassifier: High-level API for numerical/tabular data classification.
-3. Raw API: Direct access to the low-level Rust bindings.
+3. Batch Processing: True multi-core parallel batch processing.
 """
 
 import os
 import shutil
+import time
 
 from neuronguard import TextClassifier, TabularClassifier
 import neuronguard as ng
-
 
 def main():
     print("====================================================================")
@@ -23,11 +23,11 @@ def main():
     model_dir = os.path.join(script_dir, "temp_model_dir")
     
     # -------------------------------------------------------------------------
-    # SECTION 1: TextClassifier
+    # SECTION 1: TextClassifier & Zero-Copy Mmap
     # -------------------------------------------------------------------------
-    print("--- 1. Text Classification ---")
-    print("The TextClassifier handles tokenization, discriminative vocabulary building,")
-    print("and multi-epoch training automatically.\n")
+    print("--- 1. Text Classification & Zero-Copy Loading ---")
+    print("The TextClassifier handles tokenization (powered by native Rust),")
+    print("discriminative vocabulary building, and multi-epoch training.\n")
 
     records = [
         (0, 'sports football soccer match game player goal'),
@@ -39,16 +39,22 @@ def main():
     ]
 
     text_clf = TextClassifier(num_classes=3, vocab_size=20, class_names=['Sports', 'Tech', 'Science'])
+    t0 = time.perf_counter()
     text_clf.fit_records(records, epochs=5)
+    print(f"Training completed in {time.perf_counter() - t0:.4f} seconds.")
 
     test_text = "football soccer match"
     print(f"Input: '{test_text}'")
     print(f"Prediction: {text_clf.predict_name(test_text)}")
     print(f"Raw Scores: {text_clf.predict_scores(test_text)}\n")
 
-    print("Saving and loading models is instant and pointerless...")
+    print("Saving model to disk...")
     text_clf.save(model_dir)
+    
+    print("Loading model via Zero-Copy Memory Map (mmap)...")
+    t0 = time.perf_counter()
     loaded_clf = TextClassifier.load(model_dir)
+    print(f"Model loaded in {time.perf_counter() - t0:.6f} seconds!")
     print(f"Loaded model prediction for '{test_text}': {loaded_clf.predict_name(test_text)}\n")
 
     # -------------------------------------------------------------------------
@@ -76,20 +82,31 @@ def main():
     print(f"Raw Scores: {tab_clf.predict_scores(test_features)}\n")
 
     # -------------------------------------------------------------------------
-    # SECTION 3: Raw API (Rust Bindings)
+    # SECTION 3: Parallel Batch Processing API (Rust Core)
     # -------------------------------------------------------------------------
-    print("--- 3. Raw API (Rust Bindings) ---")
-    print("The high-level SDK is built on top of the raw Rust bindings, which remain")
-    print("available for advanced use cases.\n")
+    print("--- 3. Parallel Batch Processing API ---")
+    print("The high-level SDK is built on top of the raw Rust bindings, which provide")
+    print("true GIL-free multi-core parallel processing using Rayon.\n")
 
     field = ng.NeuronGuardField(sensory_count=10, motor_count=3)
-    field.train_stream([0], 0, 10, 0)
-    field.train_stream([1], 1, 15, 0)
     
-    field.reset_potentials()
-    winner = field.predict([0, 1])
+    # Train heavily using the batch API
+    print("Training 100,000 samples across all CPU cores...")
+    # Generate 100k dummy training tasks: (tokens, label)
+    batch_train_tasks = [([0, 1, 2], 0)] * 50_000 + [([3, 4, 5], 1)] * 50_000
     
-    print(f"Raw NeuronGuardField winner for stimuli [0, 1]: {winner} (Expected: 1)")
+    t0 = time.perf_counter()
+    field.train_batch(batch_train_tasks, 10, 0)
+    print(f"Batch training completed in {time.perf_counter() - t0:.4f} seconds.\n")
+
+    print("Predicting 100,000 samples across all CPU cores...")
+    # Predict 100k times
+    batch_predict_tasks = [[0, 1, 2]] * 50_000 + [[3, 4, 5]] * 50_000
+    
+    t0 = time.perf_counter()
+    results = field.predict_batch(batch_predict_tasks)
+    print(f"Batch inference completed in {time.perf_counter() - t0:.4f} seconds.")
+    print(f"First result: Class {results[0]}, 50,001st result: Class {results[50000]}")
 
     # Cleanup
     shutil.rmtree(model_dir, ignore_errors=True)
