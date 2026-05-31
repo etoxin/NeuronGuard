@@ -214,7 +214,7 @@ class TabularClassifier:
         """
         tokens = self._get_tokens(features)
         self._field.reset_potentials()
-        self._field.process_stream_sync(tokens)
+        self._field.predict(tokens)
         potentials = self._field.get_potentials()
         return potentials.index(max(potentials))
 
@@ -229,7 +229,7 @@ class TabularClassifier:
         """
         tokens = self._get_tokens(features)
         self._field.reset_potentials()
-        self._field.process_stream_sync(tokens)
+        self._field.predict(tokens)
         return self._field.get_potentials()
 
     # -------------------------------------------------------------------------

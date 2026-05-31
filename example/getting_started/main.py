@@ -4,8 +4,7 @@ NeuronGuard: Getting Started Guide
 This example introduces the core concepts of NeuronGuard through its Python SDK:
 1. TextClassifier: High-level API for text classification.
 2. TabularClassifier: High-level API for numerical/tabular data classification.
-3. InsectoidGait: High-level API for spatiotemporal ensemble meshes.
-4. Raw API: Direct access to the low-level Rust bindings.
+3. Raw API: Direct access to the low-level Rust bindings.
 """
 
 import os
@@ -13,7 +12,7 @@ import shutil
 import tempfile
 import time
 
-from neuronguard import TextClassifier, TabularClassifier, InsectoidGait
+from neuronguard import TextClassifier, TabularClassifier
 import neuronguard as ng
 
 
@@ -79,29 +78,9 @@ def main():
     print(f"Raw Scores: {tab_clf.predict_scores(test_features)}\n")
 
     # -------------------------------------------------------------------------
-    # SECTION 3: InsectoidGait (Spatiotemporal Mesh)
+    # SECTION 3: Raw API (Rust Bindings)
     # -------------------------------------------------------------------------
-    print("--- 3. Insectoid Gait (Spatiotemporal Mesh) ---")
-    print("A high-level wrapper for exploring CPG feedback loops and topological plasticity.\n")
-
-    sim = InsectoidGait()
-    
-    print("Running 5 steps to establish a gait...")
-    for _ in range(5):
-        state = sim.step()
-        print(f"Step {state.step:02d} | Phases: {['{:.2f}'.format(p) for p in state.phases]}")
-        time.sleep(0.05)
-
-    print("\nInjecting perturbation (slip/push) on leg 0...")
-    mutations = sim.perturb(target_leg=0)
-    for m in mutations:
-        print(f"Mutation: Token {m.token_id} re-patched {m.evicted_target} -> {m.new_target} (at {m.timestamp_us}us)")
-    print()
-
-    # -------------------------------------------------------------------------
-    # SECTION 4: Raw API (Rust Bindings)
-    # -------------------------------------------------------------------------
-    print("--- 4. Raw API (Rust Bindings) ---")
+    print("--- 3. Raw API (Rust Bindings) ---")
     print("The high-level SDK is built on top of the raw Rust bindings, which remain")
     print("available for advanced use cases.\n")
 
@@ -110,7 +89,7 @@ def main():
     field.train_stream([1], 1, 15, 0)
     
     field.reset_potentials()
-    winner = field.process_stream([0, 1], training_mode=False)
+    winner = field.predict([0, 1])
     
     print(f"Raw NeuronGuardField winner for stimuli [0, 1]: {winner} (Expected: 1)")
 

@@ -24,13 +24,7 @@ run = "cargo run --bin neuron-poc"
 description = "Run the NeuronGuard Getting Started Guide"
 run = "uv run --no-project python example/getting_started/main.py"
 
-[tasks.advanced]
-description = "Run the NeuronGuard Advanced Multi-Threaded Simulation"
-run = "uv run --no-project python example/advanced/main.py"
 
-[tasks.spatiotemporal_mesh]
-description = "Run the NeuronGuard Spatiotemporal Ensemble Mesh & Insectoid Simulation"
-run = "uv run --no-project python example/spatiotemporal_mesh/main.py"
 
 [tasks.fraud_scanner]
 description = "Run the NeuronGuard High-Frequency Financial Fraud Scanner"
@@ -58,9 +52,6 @@ run = "uv run --no-project python example/giant_dataset/main.py"
 description = "Run the PyTorch vs NeuronGuard 3M Giant Benchmark"
 run = "uv run --no-project python example/giant_dataset/pytorch_benchmark.py"
 
-[tasks.expression_cloner]
-description = "Run the NeuronGuard Pure Python Online Expression Cloner & Detector"
-run = "uv run --no-project python example/expression_cloner/main.py"
 
 [tasks.run]
 run = "cargo run"

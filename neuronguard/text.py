@@ -252,7 +252,7 @@ class TextClassifier:
         indices = self._text_to_indices(text)
         self._field.reset_potentials()
         if indices:
-            self._field.process_stream_sync(indices)
+            self._field.predict(indices)
         potentials = self._field.get_potentials()
         return potentials.index(max(potentials))
 
@@ -268,7 +268,7 @@ class TextClassifier:
         indices = self._text_to_indices(text)
         self._field.reset_potentials()
         if indices:
-            self._field.process_stream_sync(indices)
+            self._field.predict(indices)
         return self._field.get_potentials()
 
     def predict_name(self, text):

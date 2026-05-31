@@ -11,8 +11,12 @@ for step in range(5):
     # Simulating a sudden burst of sensory stimuli tokens arriving over the wire
     active_stimuli = [42, 108, 512]
 
-    # Process stream drops the GIL instantly to run raw Rust address logic
-    triggered_motor_id = cortex.process_stream(active_stimuli, training_mode=True)
+    # Train the cortex to associate these stimuli with motor neuron 1
+    cortex.train_stream(active_stimuli, correct_motor_id=1, amplify_delta=15, suppress_delta=5)
+
+    # Predict
+    cortex.reset_potentials()
+    triggered_motor_id = cortex.predict(active_stimuli)
     print(f"  [Tick {step}] Stimuli {active_stimuli} ➔ Triggered Motor Neuron Terminal: {triggered_motor_id}")
 
     # Fire your prototype's metabolic decay loop to shave off old electrical energy

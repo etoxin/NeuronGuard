@@ -24,7 +24,7 @@ Raw bindings (backward compatible)::
 
 High-level SDK::
 
-    from neuronguard import TextClassifier, TabularClassifier, InsectoidGait
+    from neuronguard import TextClassifier, TabularClassifier
 """
 
 # Re-export the compiled Rust extension classes at the top level
@@ -33,8 +33,6 @@ High-level SDK::
 try:
     from .neuronguard import (  # noqa: F401
         NeuronGuardField,
-        PyInsectoidSimulation,
-        PyPermanentSpatiotemporalEnsembleMesh,
     )
 except ImportError:
     # Allow import during type checking or docs build when the
@@ -42,10 +40,10 @@ except ImportError:
     pass
 
 # High-level SDK exports
-from .mesh import GaitState, InsectoidGait, MutationEvent  # noqa: F401
+
 from .tabular import TabularClassifier  # noqa: F401
 from .text import TextClassifier  # noqa: F401
-from .tokenizer import DEFAULT_STOP_WORDS, stem, tokenize  # noqa: F401
+from .tokenizer import DEFAULT_STOP_WORDS, tokenize  # noqa: F401
 from .vocab import build_vocab  # noqa: F401
 
 __version__ = "0.2.0"
