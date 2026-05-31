@@ -382,7 +382,51 @@ impl NeuronGuardTrainerField {
             .map(|pot| pot.load(Ordering::Relaxed))
             .collect()
     }
+
+    /// Forces an immediate Hebbian integer addition into a targeted cell address
+    pub fn potentiate_synapse_sync(&mut self, source: usize, target: usize, weight_delta: i16) {
+        if source < self.sensory_count && target < self.motor_count {
+            self.potentiate(source, target as u16, weight_delta);
+        }
+    }
+
+    /// Directly writes to the TPI accumulator register for manual testing
+    pub fn inject_potential_sync(&mut self, target_node: usize, voltage: i16) {
+        if target_node < self.motor_count {
+            let prev = self.potentials[target_node].fetch_add(voltage as i32, Ordering::Relaxed);
+            if prev == 0 && voltage != 0 {
+                self.active_indices.push(target_node as u32);
+            }
+        }
+    }
+
+    /// Pulls the raw synaptic layout sorted from highest weight down
+    pub fn get_row_synapses_sync(&self, row_idx: usize) -> Vec<(usize, i16)> {
+        if row_idx < self.sensory_count {
+            let line = &self.lines[row_idx];
+            let mut synapses = Vec::new();
+
+            for j in 0..24 {
+                let w = line.synapses_weights[j];
+                if w > 0 {
+                    synapses.push((line.target_ids[j] as usize, w));
+                }
+            }
+            for &(target_id, w) in &self.overflow[row_idx] {
+                if w > 0 {
+                    synapses.push((target_id as usize, w));
+                }
+            }
+
+            // Sort from highest weight down
+            synapses.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+            synapses
+        } else {
+            Vec::new()
+        }
+    }
 }
+
 
 /// Magic header identifying the variable-length ("NGV2") synaptic model-card format.
 const MAGIC: &[u8; 4] = b"NGV2";

@@ -646,6 +646,21 @@ impl PyNeuronGuardTrainerField {
         self.trainer.get_potentials()
     }
 
+    fn potentiate_synapse_sync(&mut self, source: usize, target: usize, weight_delta: i16) -> PyResult<()> {
+        self.trainer.potentiate_synapse_sync(source, target, weight_delta);
+        Ok(())
+    }
+
+    fn inject_potential_sync(&mut self, target_node: usize, voltage: i16) -> PyResult<()> {
+        self.trainer.inject_potential_sync(target_node, voltage);
+        Ok(())
+    }
+
+    fn get_row_synapses_sync(&self, row_idx: usize) -> PyResult<Vec<(usize, i16)>> {
+        Ok(self.trainer.get_row_synapses_sync(row_idx))
+    }
+
+
     /// Returns the learned `(target_id, weight)` successors for a token, merging the
     /// cache-aligned hot core with the variable-length overflow store.
     fn successors(&self, token_id: usize) -> Vec<(u16, i32)> {
