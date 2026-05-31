@@ -21,9 +21,8 @@ target
 #.idea/
 
 # Downloaded Datasets for Examples
-example/ag_news/data/
-example/dbpedia/dbpedia_csv/
-example/fraud_scanner/data/
+example/**/data/
+example/**/dbpedia_csv/
 example/wikipedia_classifier/wikipedia_weights.bin
 example/wikipedia_classifier/wikipedia_vocab.txt
 
@@ -32,3 +31,7 @@ example/wikipedia_classifier/wikipedia_vocab.txt
 *.txt
 .venv/
 .mise/
+
+# Compiled Python extensions (placed by maturin)
+neuronguard/*.so
+neuronguard/*.pyd

@@ -1,0 +1,397 @@
+# Copyright 2026 Adam Lusted
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+TabularClassifier: High-level tabular/numerical classification API for NeuronGuard.
+
+Wraps the bare-metal NeuronGuardField with automatic feature bucketing, class
+weighting for imbalanced datasets, and atomic prediction.
+
+Replaces the manual bucket-computation and oversampling boilerplate in the
+fraud scanner example.
+"""
+
+import json
+import os
+import random
+
+
+class TabularClassifier:
+    """High-level tabular data classifier backed by a NeuronGuardField.
+
+    Automatically buckets continuous features into discrete sensory neuron
+    indices and handles class imbalance through configurable oversampling.
+
+    Example::
+
+        classifier = TabularClassifier(num_classes=2, num_features=5)
+        classifier.fit(
+            records=train_data,
+            feature_indices=[0, 1, 2, 3, 4],
+            label_index=5,
+            class_weights={1: 100},
+        )
+        label = classifier.predict([v10, v12, v14, v17, amount])
+    """
+
+    def __init__(
+        self,
+        num_classes,
+        num_features,
+        buckets_per_feature=10,
+        amplify_delta=15,
+        suppress_delta=5,
+        baseline_delta=10,
+    ):
+        """Initialise a TabularClassifier.
+
+        Args:
+            num_classes: Number of output categories.
+            num_features: Number of input features.
+            buckets_per_feature: Number of discrete buckets per feature.
+            amplify_delta: Weight increment for the correct class during training.
+            suppress_delta: Weight decrement for incorrect classes during training.
+            baseline_delta: Weight used for initial baseline seeding.
+        """
+        self.num_classes = num_classes
+        self.num_features = num_features
+        self.buckets_per_feature = buckets_per_feature
+        self.amplify_delta = amplify_delta
+        self.suppress_delta = suppress_delta
+        self.baseline_delta = baseline_delta
+
+        self.num_sensory = num_features * buckets_per_feature
+
+        self._field = None
+        self._features_min = None
+        self._features_max = None
+        self._is_fitted = False
+
+    def _ensure_field(self):
+        """Lazily import and create the Rust NeuronGuardField."""
+        if self._field is None:
+            from .neuronguard import NeuronGuardField
+
+            self._field = NeuronGuardField(
+                sensory_count=self.num_sensory, motor_count=self.num_classes
+            )
+
+    def _compute_boundaries(self, records, feature_indices):
+        """Compute min/max boundaries for each feature from training data."""
+        self._features_min = [float("inf")] * self.num_features
+        self._features_max = [float("-inf")] * self.num_features
+
+        for record in records:
+            for i, fi in enumerate(feature_indices):
+                val = float(record[fi])
+                if val < self._features_min[i]:
+                    self._features_min[i] = val
+                if val > self._features_max[i]:
+                    self._features_max[i] = val
+
+    def _get_tokens(self, features):
+        """Convert a list of feature values to sensory neuron indices.
+
+        Args:
+            features: List of numerical feature values (same order as feature_indices).
+
+        Returns:
+            List of sensory neuron indices.
+        """
+        tokens = []
+        for i in range(self.num_features):
+            val = float(features[i])
+            min_val = self._features_min[i]
+            max_val = self._features_max[i]
+
+            if max_val > min_val:
+                if val <= min_val:
+                    bucket = 0
+                elif val >= max_val:
+                    bucket = self.buckets_per_feature - 1
+                else:
+                    bucket = int(
+                        (val - min_val) / (max_val - min_val) * self.buckets_per_feature
+                    )
+                    bucket = min(bucket, self.buckets_per_feature - 1)
+            else:
+                bucket = 0
+
+            tokens.append(i * self.buckets_per_feature + bucket)
+        return tokens
+
+    def _seed_baseline(self, default_class=0):
+        """Seed all sensory neurons to a default class (e.g., legitimate)."""
+        for i in range(self.num_sensory):
+            self._field.train_stream([i], default_class, self.baseline_delta, 0)
+
+    # -------------------------------------------------------------------------
+    # Fitting
+    # -------------------------------------------------------------------------
+
+    def fit(
+        self,
+        records,
+        feature_indices,
+        label_index,
+        epochs=1,
+        shuffle=True,
+        class_weights=None,
+        default_class=0,
+    ):
+        """Train the classifier on tabular records.
+
+        Args:
+            records: List of records (lists/tuples of values).
+            feature_indices: List of column indices for input features.
+            label_index: Column index for the integer class label.
+            epochs: Number of training epochs.
+            shuffle: Whether to shuffle records before each epoch.
+            class_weights: Optional dict mapping class_label → oversample_multiplier.
+                For example, {1: 100} trains fraud cases 100 times per epoch.
+            default_class: The class to seed all neurons to initially (e.g., 0 for "legitimate").
+        """
+        records = list(records)
+        if class_weights is None:
+            class_weights = {}
+
+        # Compute feature boundaries
+        self._compute_boundaries(records, feature_indices)
+
+        # Initialise field and seed baseline
+        self._ensure_field()
+        self._seed_baseline(default_class)
+
+        # Build tokenized training records
+        train_records = []
+        for record in records:
+            try:
+                label = int(record[label_index])
+                features = [record[fi] for fi in feature_indices]
+                tokens = self._get_tokens(features)
+                weight = class_weights.get(label, 1)
+                train_records.append((label, tokens, weight))
+            except (ValueError, IndexError):
+                continue
+
+        # Multi-epoch training
+        for epoch in range(epochs):
+            if shuffle:
+                random.shuffle(train_records)
+            for label, tokens, weight in train_records:
+                for _ in range(weight):
+                    self._field.train_stream(
+                        tokens, label, self.amplify_delta, self.suppress_delta
+                    )
+
+        self._is_fitted = True
+
+    def update(self, X, label_index):
+        """Continually learn from new records on the fly.
+        
+        This enables zero-overhead online/continuous learning. The model weights are
+        updated instantly.
+        
+        Args:
+            X: Iterable of lists of floats (features) with the label appended.
+            label_index: The index of the label in each record.
+        """
+        if not self._is_fitted:
+            raise RuntimeError("Classifier must be fitted before it can be updated.")
+            
+        feature_indices = [i for i in range(len(X[0])) if i != label_index]
+        
+        for record in X:
+            label = int(record[label_index])
+            indices = []
+            for feat_idx in feature_indices:
+                try:
+                    val = float(record[feat_idx])
+                    indices.append(self._get_bucket_index(feat_idx, val))
+                except (ValueError, TypeError):
+                    continue
+                    
+            if indices:
+                weight = self.class_weights.get(label, 1)
+                self._field.train_stream(
+                    indices, 
+                    label, 
+                    self.amplify_delta * weight, 
+                    self.suppress_delta * weight
+                )
+
+    # -------------------------------------------------------------------------
+    # Prediction
+    # -------------------------------------------------------------------------
+
+    def predict(self, features):
+        """Classify a feature vector and return the predicted class index.
+
+        Atomically handles reset → tokenize → process → argmax.
+
+        Args:
+            features: List of numerical feature values (same order as training features).
+
+        Returns:
+            The predicted class index (0-indexed).
+        """
+        tokens = self._get_tokens(features)
+        self._field.reset_potentials()
+        self._field.predict(tokens)
+        potentials = self._field.get_potentials()
+        return potentials.index(max(potentials))
+
+    def predict_scores(self, features):
+        """Classify a feature vector and return raw potentials for all classes.
+
+        Args:
+            features: List of numerical feature values.
+
+        Returns:
+            A list of integer potentials, one per class.
+        """
+        tokens = self._get_tokens(features)
+        self._field.reset_potentials()
+        self._field.predict(tokens)
+        return self._field.get_potentials()
+
+    # -------------------------------------------------------------------------
+    # Evaluation
+    # -------------------------------------------------------------------------
+
+    def evaluate(self, records, feature_indices, label_index):
+        """Evaluate accuracy on test records.
+
+        Args:
+            records: List of test records.
+            feature_indices: List of column indices for input features.
+            label_index: Column index for the class label.
+
+        Returns:
+            A tuple of (accuracy_pct, report_str) with per-class metrics.
+        """
+        confusion = [[0] * self.num_classes for _ in range(self.num_classes)]
+        correct = 0
+        total = 0
+
+        for record in records:
+            try:
+                actual = int(record[label_index])
+                features = [record[fi] for fi in feature_indices]
+            except (ValueError, IndexError):
+                continue
+
+            predicted = self.predict(features)
+            confusion[actual][predicted] += 1
+            if predicted == actual:
+                correct += 1
+            total += 1
+
+        accuracy = (correct / total * 100) if total > 0 else 0.0
+        report = self._format_report(confusion, correct, total, accuracy)
+        return accuracy, report
+
+    def _format_report(self, confusion, correct, total, accuracy):
+        """Format a classification report with per-class metrics."""
+        lines = []
+        lines.append(f"Accuracy: {accuracy:.2f}% ({correct}/{total})")
+        lines.append("")
+        lines.append(
+            f"{'Class':<15} | {'Precision':>10} | {'Recall':>10} | {'F1-Score':>10}"
+        )
+        lines.append("-" * 53)
+
+        for i in range(self.num_classes):
+            tp = confusion[i][i]
+            fp = sum(confusion[j][i] for j in range(self.num_classes)) - tp
+            fn = sum(confusion[i][j] for j in range(self.num_classes)) - tp
+
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = (
+                2 * (precision * recall) / (precision + recall)
+                if (precision + recall) > 0
+                else 0.0
+            )
+
+            lines.append(
+                f"Class {i:<9} | {precision * 100:9.2f}% | {recall * 100:9.2f}% | {f1 * 100:9.2f}%"
+            )
+
+        return "\n".join(lines)
+
+    # -------------------------------------------------------------------------
+    # Persistence
+    # -------------------------------------------------------------------------
+
+    def save(self, path):
+        """Save the trained model to a directory.
+
+        Args:
+            path: Directory path to save the model to.
+        """
+        os.makedirs(path, exist_ok=True)
+
+        self._field.save_weights(os.path.join(path, "weights.bin"))
+
+        config = {
+            "num_classes": self.num_classes,
+            "num_features": self.num_features,
+            "buckets_per_feature": self.buckets_per_feature,
+            "amplify_delta": self.amplify_delta,
+            "suppress_delta": self.suppress_delta,
+            "baseline_delta": self.baseline_delta,
+            "features_min": self._features_min,
+            "features_max": self._features_max,
+        }
+        with open(os.path.join(path, "config.json"), "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+
+    @classmethod
+    def load(cls, path):
+        """Load a trained model from a directory.
+
+        Args:
+            path: Directory path containing weights.bin and config.json.
+
+        Returns:
+            A fitted TabularClassifier instance.
+        """
+        with open(os.path.join(path, "config.json"), "r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        classifier = cls(
+            num_classes=config["num_classes"],
+            num_features=config["num_features"],
+            buckets_per_feature=config.get("buckets_per_feature", 10),
+            amplify_delta=config.get("amplify_delta", 15),
+            suppress_delta=config.get("suppress_delta", 5),
+            baseline_delta=config.get("baseline_delta", 10),
+        )
+
+        classifier._features_min = config["features_min"]
+        classifier._features_max = config["features_max"]
+
+        classifier._ensure_field()
+        classifier._field.load_weights(os.path.join(path, "weights.bin"))
+        classifier._is_fitted = True
+
+        return classifier
+
+    @staticmethod
+    def exists(path):
+        """Check whether a saved model exists at the given path."""
+        return os.path.exists(os.path.join(path, "weights.bin")) and os.path.exists(
+            os.path.join(path, "config.json")
+        )

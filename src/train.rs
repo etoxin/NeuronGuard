@@ -121,4 +121,99 @@ mod tests {
             assert_eq!(n.weight_modifiers[1], 5);
         }
     }
+
+    #[test]
+    fn test_trainer_mode_guard() {
+        // Phase 2 Checklist: Trainer Mode Guard Test
+        // Trigger a cascade where Node 0 activates Node 1, which activates Node 2.
+        // Verify that Node 2 successfully passes a feedback signal backwards through
+        // the open session trace to update Node 0's weight variable before the temporary thread ends.
+        let field = NeuronField::new(3);
+
+        // Initialize 3 nodes: Node 0 -> Node 1 -> Node 2
+        unsafe {
+            let n0 = field.get_neuron(0);
+            n0.potential = 0.0;
+            n0.threshold = 1.0;
+            n0.target_id = 1;
+            n0.weight = 1.0;
+
+            let n1 = field.get_neuron(1);
+            n1.potential = 0.0;
+            n1.threshold = 1.0;
+            n1.target_id = 2;
+            n1.weight = 1.0;
+
+            let n2 = field.get_neuron(2);
+            n2.potential = 0.0;
+            n2.threshold = 1.0;
+            n2.target_id = 999; // End of chain
+            n2.weight = 1.0;
+        }
+
+        // Trigger the cascade in Trainer Mode starting at Node 0 with feedback +0.5
+        propagate_trainer(&field, 0, 1.0, None, 0.5);
+
+        // Verify that Node 0's and Node 1's weights were updated by the feedback
+        unsafe {
+            assert_eq!(field.get_neuron(0).weight, 1.5); // 1.0 + 0.5
+            assert_eq!(field.get_neuron(1).weight, 1.5); // 1.0 + 0.5
+            assert_eq!(field.get_neuron(2).weight, 1.0); // Node 2 is the end, weight unchanged
+        }
+
+        // Verify that all potentials were automatically reset to 0.0 upon Guard drop
+        unsafe {
+            assert_eq!(field.get_neuron(0).potential, 0.0);
+            assert_eq!(field.get_neuron(1).potential, 0.0);
+            assert_eq!(field.get_neuron(2).potential, 0.0);
+        }
+    }
+
+    #[test]
+    fn test_rhythm_tracker_convergence() {
+        // Phase 3 Checklist: The Convergence Win
+        // Verify that the target node's weight changes until it consistently filters out noise.
+        let field = NeuronField::new(3);
+
+        unsafe {
+            let n0 = field.get_neuron(0);
+            n0.potential = 0.0;
+            n0.threshold = 1.0;
+            n0.target_id = 2;
+            n0.weight = 1.5;
+
+            let n1 = field.get_neuron(1);
+            n1.potential = 0.0;
+            n1.threshold = 1.0;
+            n1.target_id = 2;
+            n1.weight = 1.5;
+
+            let n2 = field.get_neuron(2);
+            n2.potential = 0.0;
+            n2.threshold = 1.0;
+            n2.target_id = 999;
+            n2.weight = 0.0;
+        }
+
+        let mut converged = false;
+        for epoch in 1..=50 {
+            let is_correct_pattern = epoch % 2 == 1;
+            if is_correct_pattern {
+                propagate_trainer(&field, 0, 1.0, None, 0.05);
+            } else {
+                propagate_trainer(&field, 1, 1.0, None, -0.20);
+            }
+
+            unsafe {
+                let w0 = field.get_neuron(0).weight;
+                let w1 = field.get_neuron(1).weight;
+                if w0 >= 1.0 && w1 < 1.0 {
+                    converged = true;
+                    break;
+                }
+            }
+        }
+
+        assert!(converged, "Failed to converge within 50 epochs");
+    }
 }

@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crossbeam_channel::{unbounded, Sender};
+
 use std::alloc::{alloc_zeroed, dealloc, Layout};
-use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
-use std::sync::Arc;
-use std::thread::{self, JoinHandle};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 // Configuration Bounds
 pub const MAX_THREADS: usize = 8; // Locked directly to target CPU core architecture
@@ -78,6 +76,7 @@ impl ThreadBoundedNeuron {
 pub struct ThreadBoundedNeuronField {
     pub storage: *mut ThreadBoundedNeuron,
     pub size: usize,
+    pub mmap: Option<memmap2::MmapMut>,
 }
 
 impl ThreadBoundedNeuronField {
@@ -94,7 +93,13 @@ impl ThreadBoundedNeuronField {
             ptr
         };
 
-        Self { storage, size }
+        Self { storage, size, mmap: None }
+    }
+
+    /// Creates a field directly from a memory-mapped file for zero-copy loading.
+    pub fn from_mmap(mut mmap: memmap2::MmapMut, size: usize) -> Self {
+        let storage = mmap.as_mut_ptr() as *mut ThreadBoundedNeuron;
+        Self { storage, size, mmap: Some(mmap) }
     }
 
     /// Pure pointerless offset arithmetic mapping to Base + ID * 64
@@ -138,10 +143,12 @@ impl ThreadBoundedNeuronField {
 
 impl Drop for ThreadBoundedNeuronField {
     fn drop(&mut self) {
-        let layout = Layout::array::<ThreadBoundedNeuron>(self.size)
-            .expect("Failed to create layout for deallocation");
-        unsafe {
-            dealloc(self.storage as *mut u8, layout);
+        if self.mmap.is_none() {
+            let layout = Layout::array::<ThreadBoundedNeuron>(self.size)
+                .expect("Failed to create layout for deallocation");
+            unsafe {
+                dealloc(self.storage as *mut u8, layout);
+            }
         }
     }
 }
@@ -207,68 +214,7 @@ pub fn tokenize_features(metric_a: f64, metric_b: f64, metric_c: f64) -> u64 {
     token
 }
 
-pub fn evaluate_parallel(
-    neuron: &ThreadBoundedNeuron,
-    thread_id: usize,
-    accumulators: &[AtomicI32],
-) {
-    if thread_id < neuron.active_connections as usize {
-        let target = neuron.target_neuron_ids[thread_id] as usize;
-        let weight = neuron.weight_modifiers[thread_id] as i32;
 
-        // Concurrent atomic addition straight into target accumulation state
-        if target < accumulators.len() {
-            accumulators[target].fetch_add(weight, Ordering::Relaxed);
-        }
-    }
-}
-
-/// ParallelRouter
-/// Manages a thread pool that processes neuron evaluations in parallel.
-pub struct ParallelRouter {
-    senders: Vec<Sender<ThreadBoundedNeuron>>,
-    handles: Vec<JoinHandle<()>>,
-}
-
-impl ParallelRouter {
-    pub fn new(accumulators: Arc<Vec<AtomicI32>>) -> Self {
-        let mut senders = Vec::new();
-        let mut handles = Vec::new();
-
-        for thread_id in 0..MAX_THREADS {
-            let (sender, receiver) = unbounded::<ThreadBoundedNeuron>();
-            senders.push(sender);
-
-            let accumulators_clone = Arc::clone(&accumulators);
-            let handle = thread::spawn(move || {
-                while let Ok(neuron) = receiver.recv() {
-                    evaluate_parallel(&neuron, thread_id, &accumulators_clone);
-                }
-            });
-            handles.push(handle);
-        }
-
-        Self { senders, handles }
-    }
-
-    pub fn broadcast(&self, neuron: ThreadBoundedNeuron) {
-        for sender in &self.senders {
-            let _ = sender.send(neuron);
-        }
-    }
-}
-
-impl Drop for ParallelRouter {
-    fn drop(&mut self) {
-        self.senders.clear();
-        for handle in self.handles.drain(..) {
-            let _ = handle.join();
-        }
-    }
-}
-
-unsafe impl Send for ParallelRouter {}
-unsafe impl Sync for ParallelRouter {}
 
 #[cfg(test)]
 mod tests {
@@ -321,34 +267,7 @@ mod tests {
         assert!(lease3.is_some());
     }
 
-    #[test]
-    fn test_parallel_evaluation() {
-        let accumulators = Arc::new((0..10).map(|_| AtomicI32::new(0)).collect::<Vec<_>>());
-        let router = ParallelRouter::new(Arc::clone(&accumulators));
 
-        let mut neuron = ThreadBoundedNeuron {
-            token_id: 42,
-            active_connections: 3,
-            target_neuron_ids: [0; MAX_THREADS],
-            weight_modifiers: [0; MAX_THREADS],
-            padding: [0; 8],
-        };
-        neuron.target_neuron_ids[0] = 1;
-        neuron.weight_modifiers[0] = 5;
-        neuron.target_neuron_ids[1] = 2;
-        neuron.weight_modifiers[1] = -3;
-        neuron.target_neuron_ids[2] = 3;
-        neuron.weight_modifiers[2] = 10;
-
-        router.broadcast(neuron);
-
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        assert_eq!(accumulators[1].load(Ordering::Relaxed), 5);
-        assert_eq!(accumulators[2].load(Ordering::Relaxed), -3);
-        assert_eq!(accumulators[3].load(Ordering::Relaxed), 10);
-        assert_eq!(accumulators[0].load(Ordering::Relaxed), 0);
-    }
 
     #[test]
     fn test_autonomous_eviction() {
@@ -423,7 +342,8 @@ mod tests {
 
     #[test]
     fn test_concurrent_lease_acquisition() {
-        use std::sync::Barrier;
+        use std::sync::{Arc, Barrier};
+        use std::thread;
 
         let field = Arc::new(ThreadBoundedNeuronField::new(1));
         let barrier1 = Arc::new(Barrier::new(4));

@@ -1,0 +1,7 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks."examples:diagnostics_mode:run"]
+description = "Run the NeuronGuard Diagnostics & Explainability Example"
+run = "uv run --no-project python main.py"

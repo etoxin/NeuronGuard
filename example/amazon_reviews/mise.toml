@@ -1,0 +1,11 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks."examples:amazon_reviews:download_data"]
+description = "Download the 3.6M Amazon Reviews Dataset"
+run = "uv run --no-project python download_data.py"
+
+[tasks."examples:amazon_reviews:run"]
+description = "Run the 3.6M Amazon Reviews Text Classification Example"
+run = "uv run --no-project python main.py"

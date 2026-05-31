@@ -103,4 +103,49 @@ mod tests {
         assert_eq!(expert_potentials[0], 15);
         assert_eq!(expert_potentials[1], -5);
     }
+
+    #[test]
+    fn test_run_mode_flight() {
+        // Phase 2 Checklist: Run Mode Flight Test
+        // Feed a spike cascade through a sequence of 5 nodes.
+        // Verify that the event packet payload contains zero origin trackers,
+        // and that execution flies forward sequentially.
+        let field = NeuronField::new(5);
+        let queue = EventQueue::new();
+
+        // Initialize 5 nodes: Node 0 -> Node 1 -> Node 2 -> Node 3 -> Node 4
+        unsafe {
+            for i in 0..5 {
+                let n = field.get_neuron(i);
+                n.potential = 0.0;
+                n.threshold = 1.0;
+                n.target_id = (i + 1) as u32;
+                n.weight = 1.0;
+            }
+            // Node 4 is the end of the chain
+            field.get_neuron(4).target_id = 999;
+        }
+
+        // Push the initial event to Node 0
+        queue.push(EventPacket {
+            target_id: 0,
+            magnitude: 1.0,
+            source_id: None,
+        });
+
+        // Process exactly 5 events in the cascade sequentially.
+        // This is extremely fast, deterministic, and tests the exact propagation path.
+        for _ in 0..5 {
+            let packet = queue.receiver.recv().unwrap();
+            assert_eq!(packet.source_id, None); // Verify zero origin trackers
+            propagate_run(&field, &queue, packet);
+        }
+
+        // Verify that the cascade reached Node 4 and reset potentials along the way
+        unsafe {
+            for i in 0..5 {
+                assert_eq!(field.get_neuron(i).potential, 0.0);
+            }
+        }
+    }
 }
