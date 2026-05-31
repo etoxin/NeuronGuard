@@ -41,3 +41,12 @@ run = [
 
 [tasks.test]
 depends = ["test:*"]
+
+[tasks.docs]
+description = "Build the pdoc HTML documentation"
+run = "uv run pdoc -o docs ./neuronguard"
+
+[tasks."docs:view"]
+description = "Open the generated documentation in your default browser"
+depends = ["docs"]
+run = "open docs/index.html"
