@@ -131,6 +131,7 @@ mise run examples:getting_started_batch:run
 mise run examples:diagnostics_mode:run
 mise run examples:continuous_learning:run
 mise run examples:machine_unlearning:run
+mise run examples:sparse_embeddings:run
 
 # 4. Large-Scale Benchmarks
 mise run examples:amazon_reviews:download_data
