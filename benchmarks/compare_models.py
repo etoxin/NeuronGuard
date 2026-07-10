@@ -115,9 +115,16 @@ def fit_neuronguard(train_x, train_y, validation_x, validation_y):
     model = TabularClassifier(
         num_classes=class_count,
         num_features=feature_count,
-        buckets_per_feature=16,
-        bucket_strategy="quantile",
+        # Small-data ablation: eight equal-width bins with light smoothing
+        # preserve the associative representation while avoiding the severe
+        # over-regularisation of 16 quantile bins + Laplace alpha=1.  This
+        # configuration is fixed in the worker. The repository's historical
+        # split is a development benchmark; release claims should add nested
+        # repeated cross-validation rather than treating this split as unseen.
+        buckets_per_feature=8,
+        bucket_strategy="uniform",
         baseline_delta=0,
+        smoothing=0.01,
     )
     model.fit_xy(
         train_x,
@@ -127,7 +134,9 @@ def fit_neuronguard(train_x, train_y, validation_x, validation_y):
         class_weights=class_weights,
     )
     if class_count == 2:
-        model.tune_decision_threshold_xy(validation_x, validation_y)
+        model.tune_decision_threshold_xy(
+            validation_x, validation_y, metric="accuracy"
+        )
     return model
 
 

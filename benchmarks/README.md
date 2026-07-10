@@ -9,9 +9,9 @@ baseline, and serialized model size.
 The datasets are the complete credit-card fraud dataset used by the fraud
 example, scikit-learn breast cancer, and scikit-learn wine. Every model receives
 the same deterministic stratified 60/20/20 train/validation/test split.
-NeuronGuard uses 16 exact quantile buckets per feature, smoothed categorical
-log-likelihood weights, direct array fitting, and a binary decision threshold
-tuned on the validation split. Baselines train on the same training split;
+NeuronGuard uses 8 uniform buckets per feature, smoothing=0.01, smoothed
+categorical log-likelihood weights, direct array fitting, and a binary decision
+threshold tuned for validation accuracy. Baselines train on the same training split;
 logistic regression and boosted trees use balanced class weights.
 
 From the repository root:

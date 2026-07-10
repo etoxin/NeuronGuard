@@ -124,6 +124,12 @@ class TabularClassifier:
         self._features_min: Optional[List[float]] = None
         self._features_max: Optional[List[float]] = None
         self._bucket_boundaries: Optional[List[List[float]]] = None
+        # Bucket ids that can actually be produced by the fitted training
+        # distribution. Exact quantiles may contain duplicate boundaries, and
+        # constant features have only one outcome. Treating all configured
+        # buckets as outcomes would make those features repeat the class prior.
+        self._feature_bucket_ids: Optional[List[List[int]]] = None
+        self._constant_features: Optional[List[bool]] = None
         self._token_class_counts: Dict[int, List[float]] = {}
         self._class_counts: List[float] = [0.0] * self.num_classes
         self._is_fitted: bool = False
@@ -156,6 +162,8 @@ class TabularClassifier:
             self._features_min = []
             self._features_max = []
             self._bucket_boundaries = []
+            self._feature_bucket_ids = []
+            self._constant_features = []
             # Process one feature at a time so peak memory is O(records), not
             # O(records × features), while retaining exact quantiles.
             for feature_index in feature_indices:
@@ -170,6 +178,10 @@ class TabularClassifier:
                     )
                     boundaries.append(ordered[value_index])
                 self._bucket_boundaries.append(boundaries)
+                self._feature_bucket_ids.append(
+                    sorted({bisect.bisect_right(boundaries, value) for value in ordered})
+                )
+                self._constant_features.append(ordered[0] == ordered[-1])
         else:
             self._features_min = [float("inf")] * self.num_features
             self._features_max = [float("-inf")] * self.num_features
@@ -183,6 +195,14 @@ class TabularClassifier:
                         self._features_max[index], value
                     )
             self._bucket_boundaries = None
+            self._constant_features = [
+                minimum == maximum
+                for minimum, maximum in zip(self._features_min, self._features_max)
+            ]
+            self._feature_bucket_ids = [
+                [0] if is_constant else list(range(self.buckets_per_feature))
+                for is_constant in self._constant_features
+            ]
 
     def _get_tokens(self, features: List[float]) -> List[int]:
         """Convert a list of feature values to sensory neuron indices.
@@ -195,6 +215,10 @@ class TabularClassifier:
         """
         tokens = []
         for i in range(self.num_features):
+            # A constant training feature contains no class evidence. Omitting
+            # its token also prevents redundant feature-interaction evidence.
+            if self._constant_features and self._constant_features[i]:
+                continue
             val = float(features[i])
             min_val = self._features_min[i]
             max_val = self._features_max[i]
@@ -239,11 +263,13 @@ class TabularClassifier:
         class_count = self._class_counts[class_index]
         base_token_count = self.num_features * self.buckets_per_feature
         if token < base_token_count:
-            outcomes = self.buckets_per_feature
+            feature_index = token // self.buckets_per_feature
+            outcomes = len(self._feature_bucket_ids[feature_index])
             activations_per_record = 1
         else:
             outcomes = self.interaction_vocab_size
-            activations_per_record = self.num_features * (self.num_features - 1) // 2
+            active_features = self.num_features - sum(self._constant_features or [])
+            activations_per_record = active_features * (active_features - 1) // 2
         return (
             class_count * activations_per_record + self.smoothing * outcomes
         )
@@ -252,8 +278,16 @@ class TabularClassifier:
         if self.learning_rule != "log_likelihood":
             return
 
-        base_token_count = self.num_features * self.buckets_per_feature
-        tokens_to_refresh = set(range(base_token_count))
+        # Install weights for every bucket that prediction can emit.  Quantile
+        # boundaries may contain duplicates, so some buckets have no training
+        # observations; they still need their smoothed likelihood rather than
+        # silently contributing zero at inference time.
+        tokens_to_refresh = {
+            feature_index * self.buckets_per_feature + bucket_index
+            for feature_index in range(self.num_features)
+            for bucket_index in range(self.buckets_per_feature)
+            if not self._constant_features[feature_index]
+        }
         tokens_to_refresh.update(
             token
             for token in self._token_class_counts
@@ -755,11 +789,13 @@ class TabularClassifier:
         records: Iterable[Union[List[float], Tuple[float, ...]]],
         feature_indices: List[int],
         label_index: int,
+        metric: str = "f1",
     ) -> float:
-        """Select the validation-set score threshold that maximizes binary F1.
+        """Select a binary threshold using a held-out validation set.
 
         The supplied records must be held out from model training. The selected
         threshold is stored on the classifier and used by subsequent predictions.
+        ``metric`` may be ``"f1"`` (the historical default) or ``"accuracy"``.
         """
         if self.num_classes != 2:
             raise ValueError("decision-threshold tuning requires two classes")
@@ -772,10 +808,15 @@ class TabularClassifier:
             features = [record[index] for index in feature_indices]
             ranked.append((self.predict_margin(features), label))
 
-        return self._select_decision_threshold(ranked)
+        return self._select_decision_threshold(ranked, metric)
 
-    def tune_decision_threshold_xy(self, features, labels) -> float:
-        """Tune the binary F1 threshold from separate validation arrays."""
+    def tune_decision_threshold_xy(self, features, labels, metric: str = "f1") -> float:
+        """Tune a binary threshold from separate validation arrays.
+
+        ``metric`` may be ``"f1"`` or ``"accuracy"``.  The latter should be
+        used when the reported operating objective is accuracy; retaining F1 as
+        the default preserves the pre-0.2 behavior for existing callers.
+        """
         labels = list(labels)
         if len(features) != len(labels):
             raise ValueError("features and labels must contain the same number of rows")
@@ -785,9 +826,11 @@ class TabularClassifier:
             if label not in (0, 1):
                 raise ValueError("binary threshold labels must be 0 or 1")
             ranked.append((self.predict_margin(row), label))
-        return self._select_decision_threshold(ranked)
+        return self._select_decision_threshold(ranked, metric)
 
-    def _select_decision_threshold(self, ranked) -> float:
+    def _select_decision_threshold(self, ranked, metric: str = "f1") -> float:
+        if metric not in {"f1", "accuracy"}:
+            raise ValueError("threshold metric must be 'f1' or 'accuracy'")
         positive_count = sum(label for _, label in ranked)
 
         if not ranked or positive_count == 0 or positive_count == len(ranked):
@@ -796,8 +839,16 @@ class TabularClassifier:
         ranked.sort(key=lambda item: item[0], reverse=True)
         true_positives = 0
         false_positives = 0
-        best_f1 = -1.0
+        negative_count = len(ranked) - positive_count
+        best_score = (
+            negative_count / len(ranked) if metric == "accuracy" else 0.0
+        )
+        # A threshold above the largest margin predicts no positives.  This is
+        # a valid accuracy operating point for imbalanced data, even though it
+        # is never useful for F1.
         best_threshold = float(ranked[0][0])
+        if metric == "accuracy" and best_score > 0.0:
+            best_threshold = float(ranked[0][0]) + 1.0
         index = 0
         while index < len(ranked):
             threshold = ranked[index][0]
@@ -808,16 +859,19 @@ class TabularClassifier:
                     false_positives += 1
                 index += 1
 
-            false_negatives = positive_count - true_positives
-            precision = true_positives / (true_positives + false_positives)
-            recall = true_positives / (true_positives + false_negatives)
-            f1 = (
-                2 * precision * recall / (precision + recall)
-                if precision + recall
-                else 0.0
-            )
-            if f1 > best_f1:
-                best_f1 = f1
+            if metric == "accuracy":
+                score = (true_positives + negative_count - false_positives) / len(ranked)
+            else:
+                false_negatives = positive_count - true_positives
+                precision = true_positives / (true_positives + false_positives)
+                recall = true_positives / (true_positives + false_negatives)
+                score = (
+                    2 * precision * recall / (precision + recall)
+                    if precision + recall
+                    else 0.0
+                )
+            if score > best_score:
+                best_score = score
                 best_threshold = float(threshold)
 
         self.decision_threshold = best_threshold
@@ -972,6 +1026,8 @@ class TabularClassifier:
             "features_max": self._features_max,
             "bucket_strategy": self.bucket_strategy,
             "bucket_boundaries": self._bucket_boundaries,
+            "feature_bucket_ids": self._feature_bucket_ids,
+            "constant_features": self._constant_features,
             "decision_threshold": self.decision_threshold,
             "use_feature_interactions": self.use_feature_interactions,
             "interaction_vocab_size": self.interaction_vocab_size,
@@ -1014,6 +1070,20 @@ class TabularClassifier:
         classifier._features_min = config["features_min"]
         classifier._features_max = config["features_max"]
         classifier._bucket_boundaries = config.get("bucket_boundaries")
+        classifier._constant_features = config.get("constant_features")
+        classifier._feature_bucket_ids = config.get("feature_bucket_ids")
+        if classifier._constant_features is None:
+            # Preserve the scoring behavior of models saved before constant
+            # features were omitted from the active token stream.
+            classifier._constant_features = [False] * classifier.num_features
+        if classifier._feature_bucket_ids is None:
+            # Models saved before effective-cardinality tracking used every
+            # configured bucket in their likelihood denominator. Preserve that
+            # behavior when they are updated after loading.
+            classifier._feature_bucket_ids = [
+                list(range(classifier.buckets_per_feature))
+                for _ in range(classifier.num_features)
+            ]
         counts_path = os.path.join(path, "counts.json.gz")
         if os.path.exists(counts_path):
             with gzip.open(counts_path, "rt", encoding="utf-8") as count_file:

@@ -119,6 +119,55 @@ class TestSDK(unittest.TestCase):
             self.assertEqual(loaded.decision_threshold, threshold)
             self.assertEqual(loaded.predict([75.0]), classifier.predict([75.0]))
 
+    def test_constant_features_are_not_counted_as_class_evidence(self):
+        classifier = TabularClassifier(
+            num_classes=2,
+            num_features=2,
+            buckets_per_feature=4,
+            bucket_strategy="quantile",
+        )
+        classifier.fit(
+            [[0.0, 0.0, 0], [0.0, 1.0, 1], [0.0, 2.0, 1]],
+            feature_indices=[0, 1],
+            label_index=2,
+            shuffle=False,
+        )
+        self.assertEqual(classifier._constant_features, [True, False])
+        self.assertEqual(
+            classifier.predict_scores([0.0, 1.0]),
+            classifier.predict_scores([999.0, 1.0]),
+        )
+
+    def test_duplicate_quantile_edges_use_effective_cardinality(self):
+        values = [0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5]
+        labels = [0, 1] * 8
+        classifier = TabularClassifier(
+            num_classes=2,
+            num_features=1,
+            buckets_per_feature=8,
+            bucket_strategy="quantile",
+            smoothing=1.0,
+        )
+        classifier.fit_xy([[value] for value in values], labels, shuffle=False)
+        token = classifier._get_tokens([0.0])[0]
+        expected = classifier._weight_from_log_probability(2 / 14)
+        self.assertEqual(
+            dict(classifier._field.get_neuron_synapses(token)),
+            {0: expected, 1: expected},
+        )
+
+    def test_accuracy_threshold_can_choose_all_negative_operating_point(self):
+        classifier = TabularClassifier(num_classes=2, num_features=1)
+        ranked = [(3.0, 0), (2.0, 0), (1.0, 0), (-1.0, 1)]
+        accuracy_threshold = classifier._select_decision_threshold(
+            ranked.copy(), metric="accuracy"
+        )
+        f1_threshold = classifier._select_decision_threshold(
+            ranked.copy(), metric="f1"
+        )
+        self.assertGreater(accuracy_threshold, 3.0)
+        self.assertLess(f1_threshold, 0.0)
+
     def test_array_fit_and_batch_scores_match_scalar_api(self):
         features = [[0.0], [1.0], [9.0], [10.0]]
         labels = [0, 0, 1, 1]

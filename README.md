@@ -14,12 +14,14 @@ routers.
 
 ## Measured trade-offs
 
-On the repository's reproducible three-dataset benchmark, NeuronGuard delivered
-approximately 4 µs median single-record latency on the full credit-card fraud
-dataset, compared with 69 µs for logistic regression and 635 µs for a histogram
-boosted tree through their Python APIs. Its fraud PR-AUC was 0.609, below logistic
-regression at 0.719 and the boosted tree at 0.736. Optimized baselines also won
-batch throughput, training time, and memory.
+On the repository's reproducible three-dataset benchmark, NeuronGuard matched or
+exceeded Gaussian Naive Bayes accuracy on all three fixed test splits (fraud
+0.9990 vs 0.9762, breast cancer 0.9649 vs 0.9561, wine 1.0000 vs 1.0000).
+It delivered approximately 4.3 µs median single-record latency on fraud,
+compared with 73 µs for logistic regression and 2,592 µs for a histogram boosted
+tree through these Python APIs. Its fraud PR-AUC was 0.699, below logistic
+regression at 0.719 and the boosted tree at 0.736. Optimized baselines still win
+batch throughput and training time.
 
 See [benchmark methodology and results](benchmarks/RESULTS.md) for the complete
 comparison and machine details.
