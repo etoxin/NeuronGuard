@@ -78,39 +78,40 @@ Here is the actual output of the fraud scanner running on **284,807 real-world t
    Fraud cases per fold: [99, 99, 98, 98, 98]
 
 3. Running stratified cross-validation (1 training epoch)...
-   Fold 1: trained on 170,883, tuned on 56,962, tested on 56,962, threshold -823581.0, detected 59/99 frauds, PR-AUC 57.66%, trained in 2.1751s
-   Fold 2: trained on 170,884, tuned on 56,961, tested on 56,962, threshold -830169.0, detected 63/99 frauds, PR-AUC 51.13%, trained in 2.1550s
-   Fold 3: trained on 170,885, tuned on 56,961, tested on 56,961, threshold -797180.0, detected 53/98 frauds, PR-AUC 57.69%, trained in 2.1641s
-   Fold 4: trained on 170,885, tuned on 56,961, tested on 56,961, threshold -827212.0, detected 69/98 frauds, PR-AUC 62.59%, trained in 2.1311s
-   Fold 5: trained on 170,884, tuned on 56,962, tested on 56,961, threshold -826266.0, detected 63/98 frauds, PR-AUC 65.11%, trained in 2.1421s
-   Mean training time: 2.1535s (10.7673s total)
+   Fold 1: trained on 170,883, tuned on 56,962, tested on 56,962, threshold 4445.0, detected 72/99 frauds, PR-AUC 66.78%, trained in 2.7083s
+   Fold 2: trained on 170,884, tuned on 56,961, tested on 56,962, threshold 3682.0, detected 76/99 frauds, PR-AUC 54.61%, trained in 2.6769s
+   Fold 3: trained on 170,885, tuned on 56,961, tested on 56,961, threshold 5226.0, detected 69/98 frauds, PR-AUC 64.98%, trained in 2.6844s
+   Fold 4: trained on 170,885, tuned on 56,961, tested on 56,961, threshold 5345.0, detected 76/98 frauds, PR-AUC 66.91%, trained in 2.7192s
+   Fold 5: trained on 170,884, tuned on 56,962, tested on 56,961, threshold 4488.0, detected 76/98 frauds, PR-AUC 68.51%, trained in 2.6954s
+   Mean training time: 2.6968s (13.4842s total)
 
 4. Aggregate out-of-fold evaluation...
    --- Normal prediction ---
-   ➔ Accuracy: 99.91% (284538/284807)
+   ➔ Accuracy: 99.92% (284581/284807)
 
    --- Confusion Matrix ---
       Actual \ Predicted | Legitimate | Fraudulent
       -------------------|------------|-----------
-      Legitimate         |     284231 |         84
-      Fraudulent         |        185 |        307
+      Legitimate         |     284212 |        103
+      Fraudulent         |        123 |        369
 
    --- Fraud Detection Metrics ---
-      Precision: 78.52%
-      Recall   : 62.40%
-      F1-Score : 69.54%
-      Mean PR-AUC: 58.84%
+      Precision: 78.18%
+      Recall   : 75.00%
+      F1-Score : 76.56%
+      Mean PR-AUC: 64.36%
 ====================================================================
 ```
 
 ### Key Highlights from the Output:
 * **All Available Inputs**: Each transaction activates tokens for V1 through V28 plus Amount, using 464 base sensory neurons.
 * **Full-Dataset Evaluation**: Every transaction is tested out of fold, and each fold contains 98 or 99 fraud cases.
-* **Validation-Tuned Decisions**: Quantile buckets and held-out threshold tuning raised recall to 62.40%, detecting 307 of 492 frauds.
-* **Fast Training**: Each model trained on approximately 170,884 transactions and tuned on roughly 56,962 more in about 2.15 seconds on the measured development machine.
+* **Validation-Tuned Decisions**: Quantile buckets and held-out threshold tuning reached 75.00% recall, detecting 369 of 492 frauds.
+* **Normalized Learning**: Smoothed class likelihoods avoid saturating bucket weights and raised F1 from the previous 69.54% to 76.56%.
+* **Fast Training**: Each model trained on approximately 170,884 transactions and tuned on roughly 56,962 more in about 2.70 seconds on the measured development machine.
 
-The all-feature model improves recall over the earlier five-feature baseline but
-has lower precision-recall ranking quality. Feature selection or weighting
-remains an important next step.
+The all-feature model now improves recall and F1 over the earlier five-feature
+Hebbian baseline while retaining low false-positive volume. More expressive
+models still achieve higher PR-AUC in the separate benchmark.
 
 Exact timings vary by CPU, operating system, toolchain, and background load.

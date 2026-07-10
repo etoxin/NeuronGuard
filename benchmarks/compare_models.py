@@ -102,10 +102,6 @@ def peak_rss_during(operation):
     return result, max(0, peak - baseline)
 
 
-def neuron_records(features, labels):
-    return [row.tolist() + [int(label)] for row, label in zip(features, labels)]
-
-
 def fit_neuronguard(train_x, train_y, validation_x, validation_y):
     class_count = int(np.max(train_y)) + 1
     feature_count = train_x.shape[1]
@@ -123,22 +119,15 @@ def fit_neuronguard(train_x, train_y, validation_x, validation_y):
         bucket_strategy="quantile",
         baseline_delta=0,
     )
-    feature_indices = list(range(feature_count))
-    train_records = neuron_records(train_x, train_y)
-    model.fit(
-        train_records,
-        feature_indices=feature_indices,
-        label_index=feature_count,
+    model.fit_xy(
+        train_x,
+        train_y,
         epochs=1,
         shuffle=False,
         class_weights=class_weights,
     )
     if class_count == 2:
-        model.tune_decision_threshold(
-            neuron_records(validation_x, validation_y),
-            feature_indices=feature_indices,
-            label_index=feature_count,
-        )
+        model.tune_decision_threshold_xy(validation_x, validation_y)
     return model
 
 
@@ -183,7 +172,11 @@ def predict_neuronguard(model, features):
             scores.append(margin)
         else:
             predictions.append(int(np.argmax(raw_scores)))
-            scores.append(raw_scores)
+            scale = model.weight_scale
+            shifted = np.asarray(raw_scores, dtype=float) / scale
+            shifted -= np.max(shifted)
+            probabilities = np.exp(shifted)
+            scores.append(probabilities / np.sum(probabilities))
     return np.asarray(predictions), np.asarray(scores)
 
 

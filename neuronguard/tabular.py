@@ -23,7 +23,9 @@ fraud scanner example.
 """
 
 import bisect
+import gzip
 import json
+import math
 import os
 import random
 from typing import Dict, List, Optional, Tuple, Any, Iterable, Union
@@ -59,6 +61,9 @@ class TabularClassifier:
         interaction_vocab_size: int = 1000000,
         bucket_strategy: str = "uniform",
         decision_threshold: float = 0.0,
+        learning_rule: str = "log_likelihood",
+        smoothing: float = 1.0,
+        weight_scale: float = 256.0,
     ) -> None:
         """Initialise a TabularClassifier.
 
@@ -71,6 +76,11 @@ class TabularClassifier:
             baseline_delta (int, optional): Weight used for initial baseline seeding. Defaults to 10.
             use_feature_interactions (bool, optional): If True, hashes pairs of features to capture 2D non-linear patterns. Defaults to False.
             interaction_vocab_size (int, optional): Size of the hash space for interactions to prevent collisions. Defaults to 1000000.
+            bucket_strategy (str, optional): "uniform" or exact "quantile" buckets. Defaults to "uniform".
+            decision_threshold (float, optional): Binary class-1 score-margin threshold. Defaults to 0.
+            learning_rule (str, optional): Normalized "log_likelihood" or legacy "hebbian" updates. Defaults to "log_likelihood".
+            smoothing (float, optional): Additive smoothing for likelihood weights. Defaults to 1.
+            weight_scale (float, optional): Fixed-point log-weight scale. Defaults to 256.
         """
         if not 1 <= num_classes <= 8:
             raise ValueError("num_classes must be between 1 and 8")
@@ -92,15 +102,30 @@ class TabularClassifier:
             raise ValueError("bucket_strategy must be 'uniform' or 'quantile'")
         self.bucket_strategy = bucket_strategy
         self.decision_threshold = float(decision_threshold)
+        if learning_rule not in {"log_likelihood", "hebbian"}:
+            raise ValueError("learning_rule must be 'log_likelihood' or 'hebbian'")
+        if smoothing <= 0:
+            raise ValueError("smoothing must be positive")
+        if weight_scale <= 0:
+            raise ValueError("weight_scale must be positive")
+        self.learning_rule = learning_rule
+        self.smoothing = float(smoothing)
+        self.weight_scale = float(weight_scale)
 
         self.num_sensory = num_features * buckets_per_feature
         if self.use_feature_interactions:
             self.num_sensory += self.interaction_vocab_size
+        self._bias_token: Optional[int] = None
+        if self.learning_rule == "log_likelihood":
+            self._bias_token = self.num_sensory
+            self.num_sensory += 1
 
         self._field: Optional[Any] = None
         self._features_min: Optional[List[float]] = None
         self._features_max: Optional[List[float]] = None
         self._bucket_boundaries: Optional[List[List[float]]] = None
+        self._token_class_counts: Dict[int, List[float]] = {}
+        self._class_counts: List[float] = [0.0] * self.num_classes
         self._is_fitted: bool = False
 
     def _ensure_field(self) -> None:
@@ -124,22 +149,19 @@ class TabularClassifier:
                 f"expected {self.num_features} feature indices, got {len(feature_indices)}"
             )
 
-        feature_values = [[] for _ in range(self.num_features)]
-
-        for record in records:
-            for i, fi in enumerate(feature_indices):
-                val = float(record[fi])
-                feature_values[i].append(val)
-
-        if any(not values for values in feature_values):
+        if len(records) == 0:
             raise ValueError("cannot fit bucket boundaries from an empty dataset")
 
-        self._features_min = [min(values) for values in feature_values]
-        self._features_max = [max(values) for values in feature_values]
         if self.bucket_strategy == "quantile":
+            self._features_min = []
+            self._features_max = []
             self._bucket_boundaries = []
-            for values in feature_values:
-                ordered = sorted(values)
+            # Process one feature at a time so peak memory is O(records), not
+            # O(records × features), while retaining exact quantiles.
+            for feature_index in feature_indices:
+                ordered = sorted(float(record[feature_index]) for record in records)
+                self._features_min.append(ordered[0])
+                self._features_max.append(ordered[-1])
                 boundaries = []
                 for bucket_index in range(1, self.buckets_per_feature):
                     value_index = min(
@@ -149,6 +171,17 @@ class TabularClassifier:
                     boundaries.append(ordered[value_index])
                 self._bucket_boundaries.append(boundaries)
         else:
+            self._features_min = [float("inf")] * self.num_features
+            self._features_max = [float("-inf")] * self.num_features
+            for record in records:
+                for index, feature_index in enumerate(feature_indices):
+                    value = float(record[feature_index])
+                    self._features_min[index] = min(
+                        self._features_min[index], value
+                    )
+                    self._features_max[index] = max(
+                        self._features_max[index], value
+                    )
             self._bucket_boundaries = None
 
     def _get_tokens(self, features: List[float]) -> List[int]:
@@ -192,8 +225,75 @@ class TabularClassifier:
                     # Deterministic fast hash for a pair of integers
                     pair_hash = (tokens[i] * 83492791 + tokens[j]) % self.interaction_vocab_size
                     tokens.append(interaction_offset + pair_hash)
-                    
+
+        if self._bias_token is not None:
+            tokens.append(self._bias_token)
+
         return tokens
+
+    def _weight_from_log_probability(self, probability: float) -> int:
+        weight = round(math.log(probability) * self.weight_scale)
+        return max(-32768, min(32767, weight))
+
+    def _likelihood_denominator(self, class_index: int, token: int) -> float:
+        class_count = self._class_counts[class_index]
+        base_token_count = self.num_features * self.buckets_per_feature
+        if token < base_token_count:
+            outcomes = self.buckets_per_feature
+            activations_per_record = 1
+        else:
+            outcomes = self.interaction_vocab_size
+            activations_per_record = self.num_features * (self.num_features - 1) // 2
+        return (
+            class_count * activations_per_record + self.smoothing * outcomes
+        )
+
+    def _refresh_likelihood_weights(self) -> None:
+        if self.learning_rule != "log_likelihood":
+            return
+
+        base_token_count = self.num_features * self.buckets_per_feature
+        tokens_to_refresh = set(range(base_token_count))
+        tokens_to_refresh.update(
+            token
+            for token in self._token_class_counts
+            if token != self._bias_token
+        )
+
+        empty_counts = [0.0] * self.num_classes
+        for token in tokens_to_refresh:
+            counts = self._token_class_counts.get(token, empty_counts)
+            synapses = []
+            for class_index in range(self.num_classes):
+                probability = (counts[class_index] + self.smoothing) / (
+                    self._likelihood_denominator(class_index, token)
+                )
+                synapses.append(
+                    (class_index, self._weight_from_log_probability(probability))
+                )
+            self._field.replace_neuron_synapses(token, synapses)
+
+        total_count = sum(self._class_counts)
+        prior_denominator = total_count + self.smoothing * self.num_classes
+        prior_synapses = []
+        for class_index in range(self.num_classes):
+            prior = (self._class_counts[class_index] + self.smoothing) / prior_denominator
+            prior_synapses.append(
+                (class_index, self._weight_from_log_probability(prior))
+            )
+        self._field.replace_neuron_synapses(self._bias_token, prior_synapses)
+
+    def _accumulate_likelihood(
+        self, label: int, tokens: Iterable[int], weight: float
+    ) -> None:
+        self._class_counts[label] += weight
+        for token in tokens:
+            if token == self._bias_token:
+                continue
+            counts = self._token_class_counts.setdefault(
+                token, [0.0] * self.num_classes
+            )
+            counts[label] += weight
 
     def _seed_baseline(self, default_class: int = 0) -> None:
         """Seed all sensory neurons to a default class (e.g., legitimate).
@@ -237,32 +337,119 @@ class TabularClassifier:
         # Compute feature boundaries
         self._compute_boundaries(records, feature_indices)
 
-        # Initialise field and seed baseline
+        # Initialise a fresh field so repeated fit() calls replace prior state.
+        self._field = None
         self._ensure_field()
-        self._seed_baseline(default_class)
+        if self.learning_rule == "hebbian" and self.baseline_delta:
+            self._seed_baseline(default_class)
 
-        # Build tokenized training records
-        train_records = []
-        for record in records:
-            try:
-                label = int(record[label_index])
-                features = [record[fi] for fi in feature_indices]
-                tokens = self._get_tokens(features)
+        if epochs < 1:
+            raise ValueError("epochs must be positive")
+        if self.learning_rule == "log_likelihood":
+            self._token_class_counts = {}
+            self._class_counts = [0.0] * self.num_classes
+            for record in records:
+                try:
+                    label = int(record[label_index])
+                    features = [record[index] for index in feature_indices]
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if not 0 <= label < self.num_classes:
+                    raise ValueError(f"label {label} is outside the configured classes")
                 weight = class_weights.get(label, 1)
-                train_records.append((label, tokens, weight))
-            except (ValueError, IndexError):
-                continue
+                if weight <= 0:
+                    raise ValueError("class weights must be positive")
+                self._accumulate_likelihood(
+                    label,
+                    self._get_tokens(features),
+                    float(weight),
+                )
+            self._refresh_likelihood_weights()
+        else:
+            train_records = []
+            for record in records:
+                try:
+                    label = int(record[label_index])
+                    features = [record[index] for index in feature_indices]
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if not 0 <= label < self.num_classes:
+                    raise ValueError(f"label {label} is outside the configured classes")
+                weight = class_weights.get(label, 1)
+                if weight <= 0:
+                    raise ValueError("class weights must be positive")
+                train_records.append((label, self._get_tokens(features), weight))
+            for _ in range(epochs):
+                if shuffle:
+                    random.shuffle(train_records)
+                for label, tokens, weight in train_records:
+                    for _ in range(weight):
+                        self._field.train_stream(
+                            tokens, label, self.amplify_delta, self.suppress_delta
+                        )
 
-        # Multi-epoch training
-        for epoch in range(epochs):
-            if shuffle:
-                random.shuffle(train_records)
-            for label, tokens, weight in train_records:
-                for _ in range(weight):
-                    self._field.train_stream(
-                        tokens, label, self.amplify_delta, self.suppress_delta
-                    )
+        self._is_fitted = True
 
+    def fit_xy(
+        self,
+        features,
+        labels,
+        epochs: int = 1,
+        shuffle: bool = True,
+        class_weights: Optional[Dict[int, int]] = None,
+        default_class: int = 0,
+    ) -> None:
+        """Fit directly from separate feature and label arrays.
+
+        This avoids constructing combined Python records and works with NumPy
+        arrays without making NumPy a runtime dependency.
+        """
+        labels = list(labels)
+        if len(features) != len(labels):
+            raise ValueError("features and labels must contain the same number of rows")
+        if not labels:
+            raise ValueError("cannot fit an empty dataset")
+        if epochs < 1:
+            raise ValueError("epochs must be positive")
+        class_weights = class_weights or {}
+        feature_indices = list(range(self.num_features))
+        self._compute_boundaries(features, feature_indices)
+
+        self._field = None
+        self._ensure_field()
+        if self.learning_rule == "hebbian" and self.baseline_delta:
+            self._seed_baseline(default_class)
+
+        if self.learning_rule == "log_likelihood":
+            self._token_class_counts = {}
+            self._class_counts = [0.0] * self.num_classes
+            for row, raw_label in zip(features, labels):
+                label = int(raw_label)
+                if not 0 <= label < self.num_classes:
+                    raise ValueError(f"label {label} is outside the configured classes")
+                weight = class_weights.get(label, 1)
+                if weight <= 0:
+                    raise ValueError("class weights must be positive")
+                self._accumulate_likelihood(
+                    label, self._get_tokens(row), float(weight)
+                )
+            self._refresh_likelihood_weights()
+        else:
+            train_records = []
+            for row, raw_label in zip(features, labels):
+                label = int(raw_label)
+                if not 0 <= label < self.num_classes:
+                    raise ValueError(f"label {label} is outside the configured classes")
+                weight = class_weights.get(label, 1)
+                train_records.append((label, self._get_tokens(row), weight))
+            for _ in range(epochs):
+                if shuffle:
+                    random.shuffle(train_records)
+                for label, tokens, weight in train_records:
+                    for _ in range(weight):
+                        self._field.train_stream(
+                            tokens, label, self.amplify_delta, self.suppress_delta
+                        )
         self._is_fitted = True
 
     def fit_from_csv(
@@ -318,11 +505,19 @@ class TabularClassifier:
                     except (ValueError, IndexError):
                         continue
 
+        if epochs < 1:
+            raise ValueError("epochs must be positive")
+        self._field = None
         self._ensure_field()
-        self._seed_baseline(default_class)
+        if self.learning_rule == "hebbian" and self.baseline_delta:
+            self._seed_baseline(default_class)
+        else:
+            self._token_class_counts = {}
+            self._class_counts = [0.0] * self.num_classes
 
         # Pass 2 to N: Training
-        for epoch in range(epochs):
+        training_passes = 1 if self.learning_rule == "log_likelihood" else epochs
+        for epoch in range(training_passes):
             with open(file_path, "r", encoding="utf-8") as f:
                 reader = csv.reader(f, delimiter=delimiter)
                 if skip_header:
@@ -332,13 +527,28 @@ class TabularClassifier:
                         label = int(float(row[label_index]))
                         features = [row[fi] for fi in feature_indices]
                         tokens = self._get_tokens(features)
-                        weight = class_weights.get(label, 1)
-                        for _ in range(weight):
-                            self._field.train_stream(
-                                tokens, label, self.amplify_delta, self.suppress_delta
+                        if not 0 <= label < self.num_classes:
+                            raise ValueError(
+                                f"label {label} is outside the configured classes"
                             )
+                        weight = class_weights.get(label, 1)
+                        if weight <= 0:
+                            raise ValueError("class weights must be positive")
+                        if self.learning_rule == "log_likelihood":
+                            self._accumulate_likelihood(label, tokens, float(weight))
+                        else:
+                            for _ in range(weight):
+                                self._field.train_stream(
+                                    tokens,
+                                    label,
+                                    self.amplify_delta,
+                                    self.suppress_delta,
+                                )
                     except (ValueError, IndexError):
                         continue
+
+        if self.learning_rule == "log_likelihood":
+            self._refresh_likelihood_weights()
 
         self._is_fitted = True
 
@@ -355,27 +565,46 @@ class TabularClassifier:
         if not self._is_fitted:
             raise RuntimeError("Classifier must be fitted before it can be updated.")
             
-        if class_weights is None:
-            class_weights = {}
-            
-        feature_indices = [i for i in range(len(X[0])) if i != label_index]
-        
-        for record in X:
+        records = list(X)
+        if not records:
+            return
+        class_weights = class_weights or {}
+        feature_indices = [i for i in range(len(records[0])) if i != label_index]
+        if len(feature_indices) != self.num_features:
+            raise ValueError(f"expected {self.num_features} features")
+
+        for record in records:
             label = int(record[label_index])
+            if not 0 <= label < self.num_classes:
+                raise ValueError(f"label {label} is outside the configured classes")
             features = [record[i] for i in feature_indices]
             indices = self._get_tokens(features)
-                    
-            if indices:
-                weight = class_weights.get(label, 1)
+
+            weight = class_weights.get(label, 1)
+            if weight <= 0:
+                raise ValueError("class weights must be positive")
+            if self.learning_rule == "log_likelihood":
+                self._accumulate_likelihood(label, indices, float(weight))
+            elif indices:
                 self._field.train_stream(
-                    indices, 
-                    label, 
-                    self.amplify_delta * weight, 
-                    self.suppress_delta * weight
+                    indices,
+                    label,
+                    self.amplify_delta * weight,
+                    self.suppress_delta * weight,
                 )
 
-    def unlearn(self, X: Iterable[Union[List[float], Tuple[float, ...]]], label_index: int) -> None:
-        """Surgically unlearn records by applying negative Hebbian deltas.
+        if self.learning_rule == "log_likelihood":
+            # Every class denominator changes after an update, so refresh every
+            # learned token rather than leaving untouched weights stale.
+            self._refresh_likelihood_weights()
+
+    def unlearn(
+        self,
+        X: Iterable[Union[List[float], Tuple[float, ...]]],
+        label_index: int,
+        class_weights: Optional[Dict[int, int]] = None,
+    ) -> None:
+        """Remove record counts or apply inverse legacy Hebbian deltas.
         
         Args:
             X (Iterable[Union[List[float], Tuple[float, ...]]]): Iterable of lists of floats (features) with the label appended.
@@ -384,20 +613,43 @@ class TabularClassifier:
         if not self._is_fitted:
             raise RuntimeError("Classifier must be fitted before it can be unlearned.")
             
-        feature_indices = [i for i in range(len(X[0])) if i != label_index]
-        
-        for record in X:
+        records = list(X)
+        if not records:
+            return
+        class_weights = class_weights or {}
+        feature_indices = [i for i in range(len(records[0])) if i != label_index]
+        if len(feature_indices) != self.num_features:
+            raise ValueError(f"expected {self.num_features} features")
+
+        for record in records:
             label = int(record[label_index])
             features = [record[i] for i in feature_indices]
             indices = self._get_tokens(features)
-                    
-            if indices:
+            weight = class_weights.get(label, 1)
+            if weight <= 0:
+                raise ValueError("class weights must be positive")
+
+            if self.learning_rule == "log_likelihood":
+                if self._class_counts[label] < weight:
+                    raise ValueError("cannot unlearn more records than were learned")
+                self._class_counts[label] -= weight
+                for token in indices:
+                    if token == self._bias_token:
+                        continue
+                    counts = self._token_class_counts.get(token)
+                    if counts is None or counts[label] < weight:
+                        raise ValueError("cannot unlearn an unknown token association")
+                    counts[label] -= weight
+            elif indices:
                 self._field.train_stream(
-                    indices, 
-                    label, 
-                    -self.amplify_delta, 
-                    -self.suppress_delta
+                    indices,
+                    label,
+                    -self.amplify_delta,
+                    -self.suppress_delta,
                 )
+
+        if self.learning_rule == "log_likelihood":
+            self._refresh_likelihood_weights()
 
     # -------------------------------------------------------------------------
     # Prediction
@@ -444,6 +696,60 @@ class TabularClassifier:
         scores = self.predict_scores(features)
         return scores[1] - scores[0]
 
+    def predict_proba(self, features: List[float]) -> List[float]:
+        """Return normalized class scores using a stable softmax transform."""
+        scores = self.predict_scores(features)
+        scale = self.weight_scale if self.learning_rule == "log_likelihood" else 1.0
+        scaled = [score / scale for score in scores]
+        maximum = max(scaled)
+        exponentials = [math.exp(score - maximum) for score in scaled]
+        total = sum(exponentials)
+        return [value / total for value in exponentials]
+
+    def predict_scores_batch(self, features, batch_size: int = 4096) -> List[List[int]]:
+        """Return score vectors for many rows using native parallel batches."""
+        if not self._is_fitted:
+            raise RuntimeError("Classifier must be fitted before prediction.")
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+
+        results = []
+        for start in range(0, len(features), batch_size):
+            rows = features[start : start + batch_size]
+            token_rows = []
+            for row in rows:
+                if len(row) != self.num_features:
+                    raise ValueError(
+                        f"expected {self.num_features} features, got {len(row)}"
+                    )
+                token_rows.append(self._get_tokens(row))
+            results.extend(self._field.predict_scores_batch(token_rows))
+        return results
+
+    def predict_batch(self, features, batch_size: int = 4096) -> List[int]:
+        """Predict many rows while retaining tuned binary-threshold semantics."""
+        score_rows = self.predict_scores_batch(features, batch_size=batch_size)
+        if self.num_classes == 2:
+            return [
+                1 if scores[1] - scores[0] >= self.decision_threshold else 0
+                for scores in score_rows
+            ]
+        return [scores.index(max(scores)) for scores in score_rows]
+
+    def predict_proba_batch(
+        self, features, batch_size: int = 4096
+    ) -> List[List[float]]:
+        """Return normalized class scores for many feature rows."""
+        scale = self.weight_scale if self.learning_rule == "log_likelihood" else 1.0
+        probabilities = []
+        for scores in self.predict_scores_batch(features, batch_size=batch_size):
+            scaled = [score / scale for score in scores]
+            maximum = max(scaled)
+            exponentials = [math.exp(score - maximum) for score in scaled]
+            total = sum(exponentials)
+            probabilities.append([value / total for value in exponentials])
+        return probabilities
+
     def tune_decision_threshold(
         self,
         records: Iterable[Union[List[float], Tuple[float, ...]]],
@@ -459,14 +765,30 @@ class TabularClassifier:
             raise ValueError("decision-threshold tuning requires two classes")
 
         ranked = []
-        positive_count = 0
         for record in records:
             label = int(record[label_index])
             if label not in (0, 1):
                 raise ValueError("binary threshold labels must be 0 or 1")
             features = [record[index] for index in feature_indices]
             ranked.append((self.predict_margin(features), label))
-            positive_count += label
+
+        return self._select_decision_threshold(ranked)
+
+    def tune_decision_threshold_xy(self, features, labels) -> float:
+        """Tune the binary F1 threshold from separate validation arrays."""
+        labels = list(labels)
+        if len(features) != len(labels):
+            raise ValueError("features and labels must contain the same number of rows")
+        ranked = []
+        for row, raw_label in zip(features, labels):
+            label = int(raw_label)
+            if label not in (0, 1):
+                raise ValueError("binary threshold labels must be 0 or 1")
+            ranked.append((self.predict_margin(row), label))
+        return self._select_decision_threshold(ranked)
+
+    def _select_decision_threshold(self, ranked) -> float:
+        positive_count = sum(label for _, label in ranked)
 
         if not ranked or positive_count == 0 or positive_count == len(ranked):
             raise ValueError("threshold tuning requires records from both classes")
@@ -629,6 +951,16 @@ class TabularClassifier:
 
         self._field.save_weights(os.path.join(path, "weights.bin"))
 
+        if self.learning_rule == "log_likelihood":
+            count_state = {
+                "token_class_counts": self._token_class_counts,
+                "class_counts": self._class_counts,
+            }
+            with gzip.open(
+                os.path.join(path, "counts.json.gz"), "wt", encoding="utf-8"
+            ) as count_file:
+                json.dump(count_state, count_file, separators=(",", ":"))
+
         config = {
             "num_classes": self.num_classes,
             "num_features": self.num_features,
@@ -643,6 +975,9 @@ class TabularClassifier:
             "decision_threshold": self.decision_threshold,
             "use_feature_interactions": self.use_feature_interactions,
             "interaction_vocab_size": self.interaction_vocab_size,
+            "learning_rule": self.learning_rule,
+            "smoothing": self.smoothing,
+            "weight_scale": self.weight_scale,
         }
         with open(os.path.join(path, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
@@ -671,11 +1006,27 @@ class TabularClassifier:
             decision_threshold=config.get("decision_threshold", 0.0),
             use_feature_interactions=config.get("use_feature_interactions", False),
             interaction_vocab_size=config.get("interaction_vocab_size", 1000000),
+            learning_rule=config.get("learning_rule", "hebbian"),
+            smoothing=config.get("smoothing", 1.0),
+            weight_scale=config.get("weight_scale", 256.0),
         )
 
         classifier._features_min = config["features_min"]
         classifier._features_max = config["features_max"]
         classifier._bucket_boundaries = config.get("bucket_boundaries")
+        counts_path = os.path.join(path, "counts.json.gz")
+        if os.path.exists(counts_path):
+            with gzip.open(counts_path, "rt", encoding="utf-8") as count_file:
+                count_state = json.load(count_file)
+        else:
+            count_state = config
+        classifier._token_class_counts = {
+            int(token): counts
+            for token, counts in count_state.get("token_class_counts", {}).items()
+        }
+        classifier._class_counts = count_state.get(
+            "class_counts", [0.0] * classifier.num_classes
+        )
 
         classifier._ensure_field()
         classifier._field.load_weights(os.path.join(path, "weights.bin"))

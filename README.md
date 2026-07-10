@@ -16,8 +16,8 @@ routers.
 
 On the repository's reproducible three-dataset benchmark, NeuronGuard delivered
 approximately 4 µs median single-record latency on the full credit-card fraud
-dataset, compared with 68 µs for logistic regression and 657 µs for a histogram
-boosted tree through their Python APIs. Its fraud PR-AUC was 0.572, below logistic
+dataset, compared with 69 µs for logistic regression and 635 µs for a histogram
+boosted tree through their Python APIs. Its fraud PR-AUC was 0.609, below logistic
 regression at 0.719 and the boosted tree at 0.736. Optimized baselines also won
 batch throughput, training time, and memory.
 
@@ -38,6 +38,7 @@ input and selects a class using either argmax or a tuned binary score threshold.
 * **GIL-free native work**: Rust prediction and training operations release the Python GIL; batch operations can use Rayon across independent neurons or records.
 * **Memory-mapped models**: Flat weight files can be mapped directly into memory after strict length validation.
 * **Quantile tabular features**: Numerical classifiers can use equal-width or exact training-set quantile buckets and validation-tuned binary thresholds.
+* **Normalized learning**: Tabular models default to smoothed categorical log-likelihood weights, avoiding order dependence and `i16` saturation from repeated updates. Legacy Hebbian learning remains available explicitly.
 
 ---
 

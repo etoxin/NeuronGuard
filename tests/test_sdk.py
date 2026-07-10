@@ -119,6 +119,64 @@ class TestSDK(unittest.TestCase):
             self.assertEqual(loaded.decision_threshold, threshold)
             self.assertEqual(loaded.predict([75.0]), classifier.predict([75.0]))
 
+    def test_array_fit_and_batch_scores_match_scalar_api(self):
+        features = [[0.0], [1.0], [9.0], [10.0]]
+        labels = [0, 0, 1, 1]
+        classifier = TabularClassifier(
+            num_classes=2,
+            num_features=1,
+            buckets_per_feature=2,
+            bucket_strategy="quantile",
+        )
+        classifier.fit_xy(features, labels, shuffle=False)
+        batch_scores = classifier.predict_scores_batch(features, batch_size=2)
+        self.assertEqual(
+            batch_scores,
+            [classifier.predict_scores(row) for row in features],
+        )
+        self.assertEqual(
+            classifier.predict_batch(features, batch_size=2),
+            [classifier.predict(row) for row in features],
+        )
+
+    def test_likelihood_online_update_matches_refit(self):
+        initial = [[0.0, 0], [0.0, 0], [10.0, 1]]
+        correction = [[10.0, 1]]
+        updated = TabularClassifier(
+            num_classes=2,
+            num_features=1,
+            buckets_per_feature=2,
+            bucket_strategy="uniform",
+        )
+        updated.fit(initial, feature_indices=[0], label_index=1, shuffle=False)
+        updated.update(correction, label_index=1)
+
+        refitted = TabularClassifier(
+            num_classes=2,
+            num_features=1,
+            buckets_per_feature=2,
+            bucket_strategy="uniform",
+        )
+        refitted.fit(
+            initial + correction,
+            feature_indices=[0],
+            label_index=1,
+            shuffle=False,
+        )
+        self.assertEqual(updated.predict_scores([0.0]), refitted.predict_scores([0.0]))
+        self.assertEqual(updated.predict_scores([10.0]), refitted.predict_scores([10.0]))
+
+        updated.unlearn(correction, label_index=1)
+        baseline = TabularClassifier(
+            num_classes=2,
+            num_features=1,
+            buckets_per_feature=2,
+            bucket_strategy="uniform",
+        )
+        baseline.fit(initial, feature_indices=[0], label_index=1, shuffle=False)
+        self.assertEqual(updated.predict_scores([0.0]), baseline.predict_scores([0.0]))
+        self.assertEqual(updated.predict_scores([10.0]), baseline.predict_scores([10.0]))
+
     def test_invalid_motor_count_is_rejected(self):
         with self.assertRaises(ValueError):
             NeuronGuardField(sensory_count=10, motor_count=9)

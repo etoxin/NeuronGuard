@@ -177,6 +177,24 @@ impl NeuronGuardField {
         })
     }
 
+    /// Predict Scores Batch
+    /// Computes request-local score vectors in one GIL-free native call.
+    fn predict_scores_batch(
+        &self,
+        py: Python,
+        batch_tokens: Vec<Vec<u32>>,
+    ) -> PyResult<Vec<Vec<i32>>> {
+        for tokens in &batch_tokens {
+            self.validate_tokens(tokens)?;
+        }
+        py.allow_threads(|| {
+            Ok(batch_tokens
+                .iter()
+                .map(|tokens| self.score_tokens(tokens))
+                .collect())
+        })
+    }
+
     /// Tick Decay
     /// Exposes your prototype's background metabolic forgetting clock straight to the Python loop.
     fn tick_decay(&self, py: Python, decay_factor: f32) -> PyResult<()> {
@@ -279,6 +297,38 @@ impl NeuronGuardField {
                     .collect()
             })
             .unwrap_or_default())
+    }
+
+    /// Replace Neuron Synapses
+    /// Replaces a sensory neuron's complete connection list atomically.
+    fn replace_neuron_synapses(&self, token_id: u32, synapses: Vec<(u32, i16)>) -> PyResult<()> {
+        self.validate_tokens(&[token_id])?;
+        if synapses.len() > MAX_THREADS {
+            return Err(PyValueError::new_err(format!(
+                "a neuron supports at most {MAX_THREADS} connections"
+            )));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for &(motor_id, _) in &synapses {
+            self.validate_motor(motor_id)?;
+            if !seen.insert(motor_id) {
+                return Err(PyValueError::new_err(format!(
+                    "duplicate motor id {motor_id}"
+                )));
+            }
+        }
+
+        self.sensory_neurons
+            .with_neuron_mut(token_id as usize, |neuron| {
+                neuron.active_connections = synapses.len() as u32;
+                neuron.target_neuron_ids.fill(0);
+                neuron.weight_modifiers.fill(0);
+                for (index, &(motor_id, weight)) in synapses.iter().enumerate() {
+                    neuron.target_neuron_ids[index] = motor_id;
+                    neuron.weight_modifiers[index] = weight;
+                }
+            });
+        Ok(())
     }
 
     /// Save Weights
