@@ -1,18 +1,43 @@
 # NeuronGuard
 
-**An ultra-fast, cache-aligned neuromorphic event engine bridging bare-metal Rust with an idiomatic, GIL-free Python SDK.**
+**A fast, transparent sparse decision layer for edge inference, streaming classification, and routing.**
 
-NeuronGuard is not a deep learning matrix-multiplication library. It is a highly specialized associative memory engine designed for edge intelligence, real-time control, and transparent classification. It runs **entirely on the CPU**, training on 100,000+ samples in under 3 seconds, all while fitting entirely within L1/L2 CPU cache lines.
+NeuronGuard is a CPU-first associative classifier for workloads that value
+low single-event latency, inexpensive online updates, and inspectable feature
+contributions. It converts text tokens or bucketed numerical features into a
+small set of class associations stored in a flat Rust memory layout.
+
+It is not a replacement for general deep learning, vectorized linear models, or
+boosted trees. Its strongest measured use case is making one transparent
+decision at a time in latency-sensitive streams, edge services, and first-stage
+routers.
+
+## Measured trade-offs
+
+On the repository's reproducible three-dataset benchmark, NeuronGuard delivered
+approximately 4 µs median single-record latency on the full credit-card fraud
+dataset, compared with 68 µs for logistic regression and 657 µs for a histogram
+boosted tree through their Python APIs. Its fraud PR-AUC was 0.572, below logistic
+regression at 0.719 and the boosted tree at 0.736. Optimized baselines also won
+batch throughput, training time, and memory.
+
+See [benchmark methodology and results](benchmarks/RESULTS.md) for the complete
+comparison and machine details.
 
 ---
 
-## The Technology (How it works)
+## How it works
 
-Instead of dense floating-point matrices, NeuronGuard models intelligence as a network of **cache-aligned, thread-bounded neurons** that communicate via discrete event spikes. 
+Instead of dense floating-point matrices, each sensory token owns a bounded set
+of weighted class connections. Prediction sums the connections activated by an
+input and selects a class using either argmax or a tuned binary score threshold.
 
-* **Cache-Aligned Memory**: Every neuron is packed into exactly 64 bytes. This guarantees deterministic hardware pre-fetching and completely eliminates false sharing.
-* **GIL-Free Parallelism**: Stream and batch processing instantly drops the Python Global Interpreter Lock (GIL), utilizing all CPU cores for parallel, lock-free memory mutations.
-* **Zero-Copy Serialization**: Models are flat, pointerless memory structures. Saving is an instant memory dump, and loading uses `mmap` to map the weights straight from disk into memory in `<1ms`.
+* **Cache-aligned payloads**: Every serialized neuron occupies one aligned 64-byte payload, improving predictable addressing and locality.
+* **Safe concurrent access**: Per-neuron read/write synchronization prevents training and inference data races. Contended batch updates are serialized rather than silently discarded.
+* **Request-local scoring**: Predictions calculate scores locally, so concurrent callers cannot reset or contaminate one another.
+* **GIL-free native work**: Rust prediction and training operations release the Python GIL; batch operations can use Rayon across independent neurons or records.
+* **Memory-mapped models**: Flat weight files can be mapped directly into memory after strict length validation.
+* **Quantile tabular features**: Numerical classifiers can use equal-width or exact training-set quantile buckets and validation-tuned binary thresholds.
 
 ---
 
@@ -58,7 +83,7 @@ from neuronguard import TabularClassifier
 
 # Features are automatically bucketed into 10 buckets each.
 # use_feature_interactions=True mathematically hashes pairs of metrics together, 
-# allowing the engine to instantly learn 2D non-linear patterns (e.g. Physics Data).
+# allowing the engine to represent 2D non-linear patterns.
 classifier = TabularClassifier(
     num_classes=2, 
     num_features=5, 
@@ -95,26 +120,30 @@ classifier.print_explanation("urgent meeting to reset password")
 ```
 
 ### 4. Continuous Online Learning
-Because NeuronGuard uses biological topological plasticity instead of backpropagation, models can be updated on the fly without retraining from scratch.
+Sparse class associations can be updated without rebuilding the complete model.
 
 ```python
 # 1. A stream of new labelled data arrives in production
 correction = [(1, "my account upgrade to the premium plan failed")]
 
-# 2. Update the model instantly (zero-overhead, <1ms)
+# 2. Update the existing associations
 classifier.update_records(correction)
 ```
 
-### 5. Instant Machine Unlearning (GDPR Compliance)
-In traditional Deep Learning, if a user requests their data be deleted (Right to be Forgotten), the entire model must often be retrained from scratch. Because NeuronGuard uses reversible Hebbian plasticity rather than entangled gradient descent, you can instantly erase a record's influence by simply passing it to `.unlearn_records()`.
+### 5. Experimental inverse updates
+NeuronGuard can apply the inverse of a record's normal training deltas. This is
+useful for correction experiments, but it is not guaranteed to erase an exact
+historical influence after weight saturation, connection eviction, or later
+overlapping updates, and it should not be treated as certified regulatory
+machine unlearning.
 
 ```python
-# Instantly subtracts the exact synaptic weight modifications caused by this record
+# Apply inverse deltas for this record
 classifier.unlearn_records([(0, "Delete my private email address test@example.com")])
 ```
 
 ### 6. Raw Rust Batch API (GIL-Free)
-For ultimate performance, bypass the high-level classes and write batch processing loops using the raw Rust `NeuronGuardField` directly.
+For lower-level control, use the raw Rust-backed `NeuronGuardField` directly.
 
 ```python
 import time
@@ -122,10 +151,10 @@ import neuronguard as ng
 
 field = ng.NeuronGuardField(sensory_count=10000, motor_count=4)
 
-# Train 100,000 tasks instantly across all cores using Rayon
+# Train a batch using deterministic per-token update ordering
 field.train_batch(batch_train_tasks, amplify_delta=15, suppress_delta=5)
 
-# Predict 100,000 times in milliseconds
+# Predict a batch using Rayon
 results = field.predict_batch(batch_predict_tasks)
 ```
 
@@ -141,19 +170,14 @@ mise trust
 mise run setup:py
 mise run build:py
 
-# cd into the example you want to run, and run: 
-mise run
+# Change into the example directory, then invoke its namespaced task.
+cd example/fraud_scanner
+mise run examples:fraud_scanner:download_data
+mise run examples:fraud_scanner:run
 
 # you may need to download data before you can run.
 
-# Example of scripts you can run. Other examples are similar.
-mise run examples:amazon_reviews:download_data
-mise run examples:amazon_reviews:run
-# 2. Semantic Generalization & Continual Learning
-mise run examples:sparse_embeddings:run
-mise run examples:continual_learning:run
-mise run examples:melbourne_cup:run
-mise run examples:team_composition:run
+# Other examples follow the same directory-local pattern.
 ```
 
 ## Installing 

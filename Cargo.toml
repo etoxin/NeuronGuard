@@ -4,11 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-crossbeam-channel = "0.5.12"
 rayon = "1.8"
 memmap2 = "0.9"
-rand = "0.8"
-csv = "1.1"
+parking_lot = "0.12"
 pyo3 = { version = "0.21", features = ["experimental-declarative-modules"] }
 
 [features]
@@ -19,4 +17,3 @@ extension-module = ["pyo3/extension-module"]
 name = "neuronguard"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
-

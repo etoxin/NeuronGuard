@@ -47,8 +47,7 @@ pub fn evaluate_neuron_potentials(
     field_size: usize,
     expert_potentials: &mut [i32],
 ) {
-    unsafe {
-        let n = field.get_neuron(neuron_id);
+    field.with_neuron(neuron_id, |n| {
         for i in 0..n.active_connections as usize {
             let target = n.target_neuron_ids[i] as usize;
             if target >= vocab_size && target < field_size {
@@ -58,7 +57,7 @@ pub fn evaluate_neuron_potentials(
                 }
             }
         }
-    }
+    });
 }
 
 /// Simple text tokenizer and cleaner.
@@ -88,14 +87,13 @@ mod tests {
         let field_size = 12;
         let field = ThreadBoundedNeuronField::new(field_size);
 
-        unsafe {
-            let n = field.get_neuron(2);
+        field.with_neuron_mut(2, |n| {
             n.active_connections = 2;
             n.target_neuron_ids[0] = 10;
             n.weight_modifiers[0] = 15;
             n.target_neuron_ids[1] = 11;
             n.weight_modifiers[1] = -5;
-        }
+        });
 
         let mut expert_potentials = [0i32; 2];
         evaluate_neuron_potentials(&field, 2, vocab_size, field_size, &mut expert_potentials);

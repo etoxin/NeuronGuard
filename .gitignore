@@ -35,3 +35,8 @@ example/wikipedia_classifier/wikipedia_vocab.txt
 # Compiled Python extensions (placed by maturin)
 neuronguard/*.so
 neuronguard/*.pyd
+
+# Python and operating-system generated files
+__pycache__/
+*.py[cod]
+.DS_Store

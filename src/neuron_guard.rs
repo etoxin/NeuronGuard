@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
+use parking_lot::RwLock;
 use std::alloc::{alloc_zeroed, dealloc, Layout};
-use std::sync::atomic::{AtomicU32, Ordering};
 
 // Configuration Bounds
 pub const MAX_THREADS: usize = 8; // Locked directly to target CPU core architecture
 
 /// ThreadBoundedNeuron
 /// Spatially aligned to exactly 64 bytes to fill a standard CPU cache line.
-/// Eliminates false sharing and guarantees deterministic hardware pre-fetching.
+/// This provides fixed-width addressing and keeps independent neuron payloads
+/// from sharing the same cache line.
 #[repr(C, align(64))]
 #[derive(Debug, Clone, Copy)]
 pub struct ThreadBoundedNeuron {
@@ -74,14 +74,16 @@ impl ThreadBoundedNeuron {
 /// ThreadBoundedNeuronField
 /// Manages a flat, contiguous block of memory for ThreadBoundedNeurons.
 pub struct ThreadBoundedNeuronField {
-    pub storage: *mut ThreadBoundedNeuron,
-    pub size: usize,
-    pub mmap: Option<memmap2::MmapMut>,
+    storage: *mut ThreadBoundedNeuron,
+    size: usize,
+    mmap: Option<memmap2::MmapMut>,
+    locks: Box<[RwLock<()>]>,
 }
 
 impl ThreadBoundedNeuronField {
     /// Allocates a flat, contiguous block of memory for `size` neurons, zero-initialized.
     pub fn new(size: usize) -> Self {
+        assert!(size > 0, "ThreadBoundedNeuronField size must be positive");
         let layout = Layout::array::<ThreadBoundedNeuron>(size)
             .expect("Failed to create memory layout for ThreadBoundedNeuronField");
 
@@ -93,50 +95,89 @@ impl ThreadBoundedNeuronField {
             ptr
         };
 
-        Self { storage, size, mmap: None }
+        let field = Self {
+            storage,
+            size,
+            mmap: None,
+            locks: Self::make_locks(size),
+        };
+        for id in 0..size {
+            field.with_neuron_mut(id, |neuron| neuron.token_id = id as u32);
+        }
+        field
     }
 
     /// Creates a field directly from a memory-mapped file for zero-copy loading.
     pub fn from_mmap(mut mmap: memmap2::MmapMut, size: usize) -> Self {
+        assert!(size > 0, "ThreadBoundedNeuronField size must be positive");
+        assert_eq!(
+            mmap.len(),
+            Self::byte_len_for(size),
+            "Memory-mapped model length does not match neuron count"
+        );
         let storage = mmap.as_mut_ptr() as *mut ThreadBoundedNeuron;
-        Self { storage, size, mmap: Some(mmap) }
-    }
-
-    /// Pure pointerless offset arithmetic mapping to Base + ID * 64
-    ///
-    /// # Safety
-    /// This is unsafe because it performs raw pointer arithmetic.
-    /// The caller must ensure that the `id` is within bounds.
-    pub unsafe fn get_neuron(&self, id: usize) -> &mut ThreadBoundedNeuron {
-        if id >= self.size {
-            panic!("Neuron ID out of bounds: {} >= {}", id, self.size);
+        Self {
+            storage,
+            size,
+            mmap: Some(mmap),
+            locks: Self::make_locks(size),
         }
-        // self.storage.add(id) calculates: storage_address + (id * size_of::<ThreadBoundedNeuron>())
-        // Since ThreadBoundedNeuron is 64 bytes, this is exactly: Base + ID * 64 (or ID << 6)
-        &mut *self.storage.add(id)
     }
 
-    /// Acquires a transactional, lock-free lease on the specific 64-byte memory address of the active token.
-    /// Uses the first 4 bytes of padding as an AtomicU32 lease flag.
-    pub fn try_acquire_lease(&self, id: usize) -> Option<NeuronLease<'_>> {
+    fn make_locks(size: usize) -> Box<[RwLock<()>]> {
+        (0..size)
+            .map(|_| RwLock::new(()))
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
+    }
+
+    pub fn byte_len_for(size: usize) -> usize {
+        size.checked_mul(std::mem::size_of::<ThreadBoundedNeuron>())
+            .expect("Neuron field byte length overflow")
+    }
+
+    /// Reads a neuron while holding its shared lock.
+    #[cfg_attr(not(feature = "extension-module"), allow(dead_code))]
+    pub(crate) fn with_neuron<R>(
+        &self,
+        id: usize,
+        read: impl FnOnce(&ThreadBoundedNeuron) -> R,
+    ) -> Option<R> {
         if id >= self.size {
             return None;
         }
+        let _guard = self.locks[id].read();
+        // SAFETY: `id` is in bounds, allocation and mmap storage are both aligned for
+        // `ThreadBoundedNeuron`, and the read lock excludes every mutable accessor.
+        let neuron = unsafe { &*self.storage.add(id) };
+        Some(read(neuron))
+    }
+
+    /// Mutates a neuron while holding its exclusive lock.
+    pub(crate) fn with_neuron_mut<R>(
+        &self,
+        id: usize,
+        update: impl FnOnce(&mut ThreadBoundedNeuron) -> R,
+    ) -> Option<R> {
+        if id >= self.size {
+            return None;
+        }
+        let _guard = self.locks[id].write();
+        // SAFETY: `id` is in bounds, allocation and mmap storage are both aligned for
+        // `ThreadBoundedNeuron`, and the write lock excludes all other accessors.
+        let neuron = unsafe { &mut *self.storage.add(id) };
+        Some(update(neuron))
+    }
+
+    /// Copies a consistent snapshot of the flat neuron payload.
+    #[cfg(feature = "extension-module")]
+    pub(crate) fn snapshot_bytes(&self) -> Vec<u8> {
+        let _guards: Vec<_> = self.locks.iter().map(RwLock::read).collect();
+        // SAFETY: all neuron read locks are held, so the allocation cannot be mutated
+        // while the byte slice is copied. The allocation spans exactly `byte_len` bytes.
         unsafe {
-            let neuron = self.get_neuron(id);
-            let lease_ptr = neuron.padding.as_ptr() as *const AtomicU32;
-            let lease_ref = &*lease_ptr;
-            if lease_ref
-                .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                Some(NeuronLease {
-                    neuron_id: id,
-                    field: self,
-                })
-            } else {
-                None
-            }
+            std::slice::from_raw_parts(self.storage.cast::<u8>(), Self::byte_len_for(self.size))
+                .to_vec()
         }
     }
 }
@@ -153,32 +194,11 @@ impl Drop for ThreadBoundedNeuronField {
     }
 }
 
+// SAFETY: the raw pointer is private and every dereference is protected by the
+// corresponding per-neuron `RwLock`. Ownership prevents `Drop` racing access.
 unsafe impl Send for ThreadBoundedNeuronField {}
+// SAFETY: shared access can only reach storage through the locked closure APIs.
 unsafe impl Sync for ThreadBoundedNeuronField {}
-
-/// NeuronLease
-/// Represents a transactional lease on a specific neuron.
-pub struct NeuronLease<'a> {
-    pub neuron_id: usize,
-    pub field: &'a ThreadBoundedNeuronField,
-}
-
-impl<'a> NeuronLease<'a> {
-    pub fn neuron(&self) -> &mut ThreadBoundedNeuron {
-        unsafe { self.field.get_neuron(self.neuron_id) }
-    }
-}
-
-impl<'a> Drop for NeuronLease<'a> {
-    fn drop(&mut self) {
-        unsafe {
-            let neuron = self.field.get_neuron(self.neuron_id);
-            let lease_ptr = neuron.padding.as_ptr() as *const AtomicU32;
-            let lease_ref = &*lease_ptr;
-            lease_ref.store(0, Ordering::SeqCst);
-        }
-    }
-}
 
 // Instant, allocation-free feature compression
 pub fn tokenize_features(metric_a: f64, metric_b: f64, metric_c: f64) -> u64 {
@@ -191,7 +211,7 @@ pub fn tokenize_features(metric_a: f64, metric_b: f64, metric_c: f64) -> u64 {
     } else {
         1
     };
-    token |= bucket_a << 0;
+    token |= bucket_a;
 
     let bucket_b = if metric_b > 1200.0 {
         7
@@ -214,8 +234,6 @@ pub fn tokenize_features(metric_a: f64, metric_b: f64, metric_c: f64) -> u64 {
     token
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,40 +252,21 @@ mod tests {
     }
 
     #[test]
-    fn test_field_allocation_and_leap() {
+    fn test_field_allocation_and_access() {
         let field = ThreadBoundedNeuronField::new(10);
-        unsafe {
-            let n = field.get_neuron(3);
+        field.with_neuron_mut(3, |n| {
             n.token_id = 123;
             n.active_connections = 2;
             n.target_neuron_ids[0] = 5;
             n.weight_modifiers[0] = 10;
-
-            let n_check = field.get_neuron(3);
+        });
+        field.with_neuron(3, |n_check| {
             assert_eq!(n_check.token_id, 123);
             assert_eq!(n_check.active_connections, 2);
             assert_eq!(n_check.target_neuron_ids[0], 5);
             assert_eq!(n_check.weight_modifiers[0], 10);
-        }
+        });
     }
-
-    #[test]
-    fn test_neuron_lease() {
-        let field = ThreadBoundedNeuronField::new(5);
-
-        let lease1 = field.try_acquire_lease(2);
-        assert!(lease1.is_some());
-
-        let lease2 = field.try_acquire_lease(2);
-        assert!(lease2.is_none());
-
-        drop(lease1);
-
-        let lease3 = field.try_acquire_lease(2);
-        assert!(lease3.is_some());
-    }
-
-
 
     #[test]
     fn test_autonomous_eviction() {
@@ -325,53 +324,38 @@ mod tests {
     }
 
     #[test]
-    fn test_try_acquire_lease_out_of_bounds() {
+    fn test_locked_access_out_of_bounds() {
         let field = ThreadBoundedNeuronField::new(5);
-        assert!(field.try_acquire_lease(5).is_none());
-        assert!(field.try_acquire_lease(100).is_none());
+        assert!(field.with_neuron(5, |_| ()).is_none());
+        assert!(field.with_neuron_mut(100, |_| ()).is_none());
     }
 
     #[test]
-    #[should_panic(expected = "Neuron ID out of bounds")]
-    fn test_get_neuron_out_of_bounds_panic() {
-        let field = ThreadBoundedNeuronField::new(5);
-        unsafe {
-            field.get_neuron(5);
-        }
-    }
-
-    #[test]
-    fn test_concurrent_lease_acquisition() {
-        use std::sync::{Arc, Barrier};
+    fn test_concurrent_updates_are_lossless() {
+        use std::sync::Arc;
         use std::thread;
 
         let field = Arc::new(ThreadBoundedNeuronField::new(1));
-        let barrier1 = Arc::new(Barrier::new(4));
-        let barrier2 = Arc::new(Barrier::new(4));
         let mut handles = Vec::new();
 
         for _ in 0..4 {
             let field_clone = Arc::clone(&field);
-            let barrier1_clone = Arc::clone(&barrier1);
-            let barrier2_clone = Arc::clone(&barrier2);
             handles.push(thread::spawn(move || {
-                barrier1_clone.wait();
-                let lease = field_clone.try_acquire_lease(0);
-                let acquired = lease.is_some();
-                barrier2_clone.wait();
-                acquired
+                for _ in 0..1_000 {
+                    field_clone.with_neuron_mut(0, |neuron| neuron.update_or_add_connection(0, 1));
+                }
             }));
         }
 
-        let mut success_count = 0;
         for handle in handles {
-            if handle.join().unwrap() {
-                success_count += 1;
-            }
+            handle.join().unwrap();
         }
 
-        // Exactly one thread must have successfully acquired the lease
-        assert_eq!(success_count, 1);
+        field.with_neuron(0, |neuron| {
+            assert_eq!(neuron.active_connections, 1);
+            assert_eq!(neuron.target_neuron_ids[0], 0);
+            assert_eq!(neuron.weight_modifiers[0], 4_000);
+        });
     }
 
     #[test]

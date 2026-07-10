@@ -18,7 +18,7 @@ run = "cargo test --no-default-features"
 # Python tasks
 [tasks."setup:py"]
 description = "Set up the Python virtual environment using uv"
-run = "uv venv && uv pip install maturin tiktoken datasets opencv-python"
+run = "uv venv && uv pip install maturin tiktoken datasets opencv-python scikit-learn psutil"
 
 [tasks."build:py"]
 description = "Build and install the Python extension using uv and maturin"
@@ -41,6 +41,10 @@ run = [
 
 [tasks.test]
 depends = ["test:*"]
+
+[tasks.benchmark]
+description = "Compare NeuronGuard with classical tabular baselines"
+run = ".venv/bin/python benchmarks/compare_models.py"
 
 [tasks.docs]
 description = "Build the pdoc HTML documentation"

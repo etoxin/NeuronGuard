@@ -77,6 +77,10 @@ class TextClassifier:
             class_names (Optional[List[str]], optional): Optional list of human-readable class names. Defaults to None.
             use_hashed_bigrams (bool, optional): Whether to use hashed bigrams. Defaults to False.
         """
+        if not 1 <= num_classes <= 8:
+            raise ValueError("num_classes must be between 1 and 8")
+        if vocab_size < 1:
+            raise ValueError("vocab_size must be positive")
         self.num_classes = num_classes
         self.vocab_size = vocab_size
         self.amplify_delta = amplify_delta
@@ -277,8 +281,8 @@ class TextClassifier:
     def update_records(self, records: Iterable[Tuple[int, str]]) -> None:
         """Continually learn from new records on the fly without rebuilding the vocabulary.
         
-        This enables zero-overhead online/continuous learning. The model weights are
-        updated instantly. Words not in the original vocabulary are ignored.
+        This updates existing model weights without rebuilding the vocabulary.
+        Words not in the original vocabulary are ignored.
         
         Args:
             records (Iterable[Tuple[int, str]]): Iterable of (label, text) tuples.
@@ -294,11 +298,10 @@ class TextClassifier:
                 )
 
     def unlearn_records(self, records: Iterable[Tuple[int, str]]) -> None:
-        """Instantly 'unlearn' records to comply with data privacy or correct errors.
-        
-        Because NeuronGuard uses reversible Hebbian plasticity rather than entangled
-        gradient descent, you can cleanly subtract the exact synaptic weight modifications
-        caused by a specific record. This solves the 'Machine Unlearning' problem instantly.
+        """Apply inverse training deltas for records as an experimental correction.
+
+        This operation is not guaranteed to erase an exact historical influence after
+        saturation, eviction, or subsequent overlapping updates.
         
         Args:
             records (Iterable[Tuple[int, str]]): Iterable of (label, text) tuples to unlearn.
@@ -309,7 +312,7 @@ class TextClassifier:
         for label, text in records:
             indices = self._text_to_indices(text)
             if indices:
-                # Invert the deltas to subtract the exact influence this record had
+                # Invert the normal deltas as an approximate corrective update.
                 self._field.train_stream(
                     indices, label, -self.amplify_delta, -self.suppress_delta
                 )
@@ -332,10 +335,7 @@ class TextClassifier:
             int: The predicted class index (0-indexed).
         """
         indices = self._text_to_indices(text)
-        self._field.reset_potentials()
-        if indices:
-            self._field.predict(indices)
-        potentials = self._field.get_potentials()
+        potentials = self._field.predict_scores(indices)
         return potentials.index(max(potentials))
 
     def predict_scores(self, text: str) -> List[int]:
@@ -348,10 +348,7 @@ class TextClassifier:
             List[int]: A list of integer potentials, one per class.
         """
         indices = self._text_to_indices(text)
-        self._field.reset_potentials()
-        if indices:
-            self._field.predict(indices)
-        return self._field.get_potentials()
+        return self._field.predict_scores(indices)
 
     def predict_name(self, text: str) -> str:
         """Classify text and return the human-readable class name.

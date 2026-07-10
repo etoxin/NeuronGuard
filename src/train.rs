@@ -64,7 +64,7 @@ pub fn propagate_trainer(
     }
 }
 
-/// Trains a connection on a ThreadBoundedNeuron using the Guard/Lease pattern.
+/// Trains a connection on a ThreadBoundedNeuron using exclusive neuron access.
 /// Amplifies the correct expert pathway and suppresses incorrect expert pathways.
 pub fn train_neuron_connection(
     field: &ThreadBoundedNeuronField,
@@ -74,9 +74,7 @@ pub fn train_neuron_connection(
     amplify_delta: i16,
     suppress_delta: i16,
 ) {
-    if let Some(lease) = field.try_acquire_lease(neuron_id) {
-        let neuron = lease.neuron();
-
+    field.with_neuron_mut(neuron_id, |neuron| {
         // Amplify correct expert pathway
         neuron.update_or_add_connection(correct_expert, amplify_delta);
 
@@ -88,7 +86,7 @@ pub fn train_neuron_connection(
                     neuron.weight_modifiers[j].saturating_sub(suppress_delta);
             }
         }
-    }
+    });
 }
 
 #[cfg(test)]
@@ -101,25 +99,23 @@ mod tests {
         let field_size = 12;
         let field = ThreadBoundedNeuronField::new(field_size);
 
-        unsafe {
-            let n = field.get_neuron(2);
+        field.with_neuron_mut(2, |n| {
             n.active_connections = 2;
             n.target_neuron_ids[0] = 10;
             n.weight_modifiers[0] = 15;
             n.target_neuron_ids[1] = 11;
             n.weight_modifiers[1] = 20;
-        }
+        });
 
         // Train neuron 2 to target expert 10 (index 10)
         train_neuron_connection(&field, 2, 10, vocab_size, 5, 15);
 
-        unsafe {
-            let n = field.get_neuron(2);
+        field.with_neuron(2, |n| {
             // Expert 10 should be amplified: 15 + 5 = 20
             assert_eq!(n.weight_modifiers[0], 20);
             // Expert 11 should be suppressed: 20 - 15 = 5
             assert_eq!(n.weight_modifiers[1], 5);
-        }
+        });
     }
 
     #[test]

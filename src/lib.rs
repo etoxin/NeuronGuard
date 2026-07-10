@@ -12,25 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
-pub mod guard;
-pub mod memory;
 pub mod neuron_guard;
-pub mod queue;
-pub mod run;
-pub mod train;
 
 #[cfg(feature = "extension-module")]
 use crate::neuron_guard::ThreadBoundedNeuronField;
+#[cfg(feature = "extension-module")]
+use crate::neuron_guard::MAX_THREADS;
+#[cfg(feature = "extension-module")]
+use parking_lot::Mutex;
+#[cfg(feature = "extension-module")]
+use pyo3::exceptions::PyValueError;
 #[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
 #[cfg(feature = "extension-module")]
 use rayon::prelude::*;
 
 #[cfg(feature = "extension-module")]
-use std::sync::atomic::{AtomicI32, Ordering};
-#[cfg(feature = "extension-module")]
-use std::sync::Arc;
+use std::collections::BTreeMap;
 
 /// NeuronGuardField
 /// The main Neuromorphic Cortex class exposed directly to Python runtimes.
@@ -40,8 +38,80 @@ pub struct NeuronGuardField {
     sensory_count: usize,
     motor_count: usize,
     sensory_neurons: ThreadBoundedNeuronField,
-    // The underlying atomic potentials modified concurrently across threads
-    motor_potentials: Arc<Vec<AtomicI32>>,
+    // Backward-compatible snapshot for reset/get_potentials. Predictions compute
+    // request-local scores, so concurrent calls cannot contaminate one another.
+    last_potentials: Mutex<Vec<i32>>,
+}
+
+#[cfg(feature = "extension-module")]
+impl NeuronGuardField {
+    fn score_tokens(&self, sensory_tokens: &[u32]) -> Vec<i32> {
+        let mut potentials = vec![0i32; self.motor_count];
+        for &token_id in sensory_tokens {
+            self.sensory_neurons
+                .with_neuron(token_id as usize, |neuron| {
+                    for connection in 0..neuron.active_connections as usize {
+                        let target = neuron.target_neuron_ids[connection] as usize;
+                        if target < self.motor_count {
+                            potentials[target] += neuron.weight_modifiers[connection] as i32;
+                        }
+                    }
+                });
+        }
+        potentials
+    }
+
+    fn highest_score(potentials: &[i32]) -> u32 {
+        potentials
+            .iter()
+            .enumerate()
+            .fold((0usize, i32::MIN), |best, (index, &potential)| {
+                if potential > best.1 {
+                    (index, potential)
+                } else {
+                    best
+                }
+            })
+            .0 as u32
+    }
+
+    fn update_neuron(
+        neuron: &mut crate::neuron_guard::ThreadBoundedNeuron,
+        correct_motor_id: u32,
+        amplify_delta: i16,
+        suppress_delta: i16,
+    ) {
+        neuron.update_or_add_connection(correct_motor_id, amplify_delta);
+        for connection in 0..neuron.active_connections as usize {
+            if neuron.target_neuron_ids[connection] != correct_motor_id {
+                neuron.weight_modifiers[connection] =
+                    neuron.weight_modifiers[connection].saturating_sub(suppress_delta);
+            }
+        }
+    }
+
+    fn validate_tokens(&self, sensory_tokens: &[u32]) -> PyResult<()> {
+        if let Some(token) = sensory_tokens
+            .iter()
+            .find(|&&token| token as usize >= self.sensory_count)
+        {
+            return Err(PyValueError::new_err(format!(
+                "sensory token {token} is outside 0..{}",
+                self.sensory_count
+            )));
+        }
+        Ok(())
+    }
+
+    fn validate_motor(&self, motor_id: u32) -> PyResult<()> {
+        if motor_id as usize >= self.motor_count {
+            return Err(PyValueError::new_err(format!(
+                "motor id {motor_id} is outside 0..{}",
+                self.motor_count
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(feature = "extension-module")]
@@ -49,28 +119,22 @@ pub struct NeuronGuardField {
 impl NeuronGuardField {
     /// Constructor exposed to Python: ng.NeuronGuardField(sensory_count, motor_count)
     #[new]
-    fn new(sensory_count: usize, motor_count: usize) -> Self {
-        let mut potentials = Vec::with_capacity(motor_count);
-        for _ in 0..motor_count {
-            potentials.push(AtomicI32::new(0));
+    fn new(sensory_count: usize, motor_count: usize) -> PyResult<Self> {
+        if sensory_count == 0 {
+            return Err(PyValueError::new_err("sensory_count must be positive"));
+        }
+        if motor_count == 0 || motor_count > MAX_THREADS {
+            return Err(PyValueError::new_err(format!(
+                "motor_count must be between 1 and {MAX_THREADS}"
+            )));
         }
 
-        let sensory_neurons = ThreadBoundedNeuronField::new(sensory_count);
-        unsafe {
-            for i in 0..sensory_count {
-                let n = sensory_neurons.get_neuron(i);
-                n.token_id = i as u32;
-            }
-        }
-
-        let motor_potentials = Arc::new(potentials);
-
-        NeuronGuardField {
+        Ok(NeuronGuardField {
             sensory_count,
             motor_count,
-            sensory_neurons,
-            motor_potentials,
-        }
+            sensory_neurons: ThreadBoundedNeuronField::new(sensory_count),
+            last_potentials: Mutex::new(vec![0; motor_count]),
+        })
     }
 
     /// Predict
@@ -78,72 +142,36 @@ impl NeuronGuardField {
     /// adding their weights directly to the motor potentials.
     /// This is extremely fast and perfect for batch evaluation.
     fn predict(&self, py: Python, sensory_tokens: Vec<u32>) -> PyResult<u32> {
+        self.validate_tokens(&sensory_tokens)?;
         py.allow_threads(|| {
-            for &token_id in &sensory_tokens {
-                if (token_id as usize) < self.sensory_count {
-                    unsafe {
-                        let n = self.sensory_neurons.get_neuron(token_id as usize);
-                        for i in 0..n.active_connections as usize {
-                            let target = n.target_neuron_ids[i] as usize;
-                            if target < self.motor_count {
-                                self.motor_potentials[target]
-                                    .fetch_add(n.weight_modifiers[i] as i32, Ordering::Relaxed);
-                            }
-                        }
-                    }
-                }
-            }
+            let potentials = self.score_tokens(&sensory_tokens);
+            let prediction = Self::highest_score(&potentials);
+            *self.last_potentials.lock() = potentials;
+            Ok(prediction)
+        })
+    }
 
-            // Locate highest activated motor neuron index
-            let mut highest_index = 0;
-            let mut max_potential = i32::MIN;
-
-            for i in 0..self.motor_count {
-                let pot = self.motor_potentials[i].load(Ordering::Relaxed);
-                if pot > max_potential {
-                    max_potential = pot;
-                    highest_index = i as u32;
-                }
-            }
-
-            Ok(highest_index)
+    /// Predict Scores
+    /// Atomically computes and returns request-local scores for all motor neurons.
+    fn predict_scores(&self, py: Python, sensory_tokens: Vec<u32>) -> PyResult<Vec<i32>> {
+        self.validate_tokens(&sensory_tokens)?;
+        py.allow_threads(|| {
+            let potentials = self.score_tokens(&sensory_tokens);
+            *self.last_potentials.lock() = potentials.clone();
+            Ok(potentials)
         })
     }
 
     /// Predict Batch
     /// Evaluates a batch of sensory token streams in parallel using rayon.
     fn predict_batch(&self, py: Python, batch_tokens: Vec<Vec<u32>>) -> PyResult<Vec<u32>> {
+        for tokens in &batch_tokens {
+            self.validate_tokens(tokens)?;
+        }
         py.allow_threads(|| {
             let results: Vec<u32> = batch_tokens
                 .par_iter()
-                .map(|sensory_tokens| {
-                    let mut local_potentials = vec![0i32; self.motor_count];
-
-                    for &token_id in sensory_tokens {
-                        if (token_id as usize) < self.sensory_count {
-                            unsafe {
-                                let n = self.sensory_neurons.get_neuron(token_id as usize);
-                                for i in 0..n.active_connections as usize {
-                                    let target = n.target_neuron_ids[i] as usize;
-                                    if target < self.motor_count {
-                                        local_potentials[target] += n.weight_modifiers[i] as i32;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    let mut highest_index = 0;
-                    let mut max_potential = i32::MIN;
-
-                    for (i, &pot) in local_potentials.iter().enumerate() {
-                        if pot > max_potential {
-                            max_potential = pot;
-                            highest_index = i as u32;
-                        }
-                    }
-                    highest_index
-                })
+                .map(|tokens| Self::highest_score(&self.score_tokens(tokens)))
                 .collect();
             Ok(results)
         })
@@ -153,12 +181,9 @@ impl NeuronGuardField {
     /// Exposes your prototype's background metabolic forgetting clock straight to the Python loop.
     fn tick_decay(&self, py: Python, decay_factor: f32) -> PyResult<()> {
         py.allow_threads(|| {
-            for potential in self.motor_potentials.iter() {
-                let current = potential.load(Ordering::Relaxed);
-                if current != 0 {
-                    let decayed = (current as f32 * decay_factor) as i32;
-                    potential.store(decayed, Ordering::Relaxed);
-                }
+            let mut potentials = self.last_potentials.lock();
+            for potential in potentials.iter_mut() {
+                *potential = (*potential as f32 * decay_factor) as i32;
             }
             Ok(())
         })
@@ -174,24 +199,14 @@ impl NeuronGuardField {
         amplify_delta: i16,
         suppress_delta: i16,
     ) -> PyResult<()> {
+        self.validate_motor(correct_motor_id)?;
+        self.validate_tokens(&sensory_tokens)?;
         py.allow_threads(|| {
             for &token_id in &sensory_tokens {
-                if (token_id as usize) < self.sensory_count {
-                    if let Some(lease) = self.sensory_neurons.try_acquire_lease(token_id as usize) {
-                        let neuron = lease.neuron();
-                        // Amplify correct expert pathway
-                        neuron.update_or_add_connection(correct_motor_id, amplify_delta);
-
-                        // Suppress incorrect expert pathways
-                        for j in 0..neuron.active_connections as usize {
-                            let target = neuron.target_neuron_ids[j];
-                            if target != correct_motor_id {
-                                neuron.weight_modifiers[j] =
-                                    neuron.weight_modifiers[j].saturating_sub(suppress_delta);
-                            }
-                        }
-                    }
-                }
+                self.sensory_neurons
+                    .with_neuron_mut(token_id as usize, |neuron| {
+                        Self::update_neuron(neuron, correct_motor_id, amplify_delta, suppress_delta)
+                    });
             }
             Ok(())
         })
@@ -206,24 +221,24 @@ impl NeuronGuardField {
         amplify_delta: i16,
         suppress_delta: i16,
     ) -> PyResult<()> {
+        for (tokens, motor_id) in &batch {
+            self.validate_motor(*motor_id)?;
+            self.validate_tokens(tokens)?;
+        }
         py.allow_threads(|| {
-            batch.par_iter().for_each(|(sensory_tokens, correct_motor_id)| {
-                for &token_id in sensory_tokens {
-                    if (token_id as usize) < self.sensory_count {
-                        if let Some(lease) = self.sensory_neurons.try_acquire_lease(token_id as usize) {
-                            let neuron = lease.neuron();
-                            neuron.update_or_add_connection(*correct_motor_id, amplify_delta);
-
-                            for j in 0..neuron.active_connections as usize {
-                                let target = neuron.target_neuron_ids[j];
-                                if target != *correct_motor_id {
-                                    neuron.weight_modifiers[j] =
-                                        neuron.weight_modifiers[j].saturating_sub(suppress_delta);
-                                }
-                            }
-                        }
-                    }
+            let mut updates_by_token: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+            for (tokens, motor_id) in &batch {
+                for &token in tokens {
+                    updates_by_token.entry(token).or_default().push(*motor_id);
                 }
+            }
+            updates_by_token.par_iter().for_each(|(&token, motor_ids)| {
+                self.sensory_neurons
+                    .with_neuron_mut(token as usize, |neuron| {
+                        for &motor_id in motor_ids {
+                            Self::update_neuron(neuron, motor_id, amplify_delta, suppress_delta);
+                        }
+                    });
             });
             Ok(())
         })
@@ -233,9 +248,7 @@ impl NeuronGuardField {
     /// Resets all motor neuron potentials to zero.
     fn reset_potentials(&self, py: Python) -> PyResult<()> {
         py.allow_threads(|| {
-            for potential in self.motor_potentials.iter() {
-                potential.store(0, Ordering::Relaxed);
-            }
+            self.last_potentials.lock().fill(0);
             Ok(())
         })
     }
@@ -243,13 +256,7 @@ impl NeuronGuardField {
     /// Get Potentials
     /// Returns the current potentials of all motor neurons.
     fn get_potentials(&self, py: Python) -> PyResult<Vec<i32>> {
-        py.allow_threads(|| {
-            let mut potentials = Vec::with_capacity(self.motor_count);
-            for potential in self.motor_potentials.iter() {
-                potentials.push(potential.load(Ordering::Relaxed));
-            }
-            Ok(potentials)
-        })
+        py.allow_threads(|| Ok(self.last_potentials.lock().clone()))
     }
 
     /// Get Neuron Synapses
@@ -259,26 +266,26 @@ impl NeuronGuardField {
         if (token_id as usize) >= self.sensory_count {
             return Ok(vec![]);
         }
-        let mut synapses = Vec::new();
-        unsafe {
-            let n = self.sensory_neurons.get_neuron(token_id as usize);
-            for i in 0..n.active_connections as usize {
-                synapses.push((n.target_neuron_ids[i], n.weight_modifiers[i]));
-            }
-        }
-        Ok(synapses)
+        Ok(self
+            .sensory_neurons
+            .with_neuron(token_id as usize, |neuron| {
+                (0..neuron.active_connections as usize)
+                    .map(|index| {
+                        (
+                            neuron.target_neuron_ids[index],
+                            neuron.weight_modifiers[index],
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
     /// Save Weights
     /// Serializes and saves the sensory neurons' raw memory to a binary file.
     fn save_weights(&self, py: Python, path: String) -> PyResult<()> {
         py.allow_threads(|| {
-            let bytes = unsafe {
-                std::slice::from_raw_parts(
-                    self.sensory_neurons.storage as *const u8,
-                    self.sensory_count * 64,
-                )
-            };
+            let bytes = self.sensory_neurons.snapshot_bytes();
             std::fs::write(path, bytes)?;
             Ok(())
         })
@@ -288,7 +295,17 @@ impl NeuronGuardField {
     /// Loads and memory-maps the sensory neurons' connections from a binary file for zero-copy access.
     fn load_weights(&mut self, py: Python, path: String) -> PyResult<()> {
         py.allow_threads(|| {
-            let file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)?;
+            let expected_len = ThreadBoundedNeuronField::byte_len_for(self.sensory_count);
+            let actual_len = file.metadata()?.len() as usize;
+            if actual_len != expected_len {
+                return Err(PyValueError::new_err(format!(
+                    "weight file is {actual_len} bytes; expected {expected_len}"
+                )));
+            }
             let mmap = unsafe { memmap2::MmapMut::map_mut(&file)? };
             self.sensory_neurons = ThreadBoundedNeuronField::from_mmap(mmap, self.sensory_count);
             Ok(())
@@ -301,42 +318,42 @@ fn stem(word: &str) -> String {
     if word.len() <= 4 {
         return word.to_string();
     }
-    if word.ends_with("tion") {
-        return word[..word.len() - 4].to_string();
+    for suffix in ["tion", "sion", "ment", "ness"] {
+        if let Some(stripped) = word.strip_suffix(suffix) {
+            return stripped.to_string();
+        }
     }
-    if word.ends_with("sion") {
-        return word[..word.len() - 4].to_string();
+    if let Some(stripped) = word.strip_suffix("ing").filter(|_| word.len() > 5) {
+        return stripped.to_string();
     }
-    if word.ends_with("ment") {
-        return word[..word.len() - 4].to_string();
+    if let Some(stripped) = word.strip_suffix("ies").filter(|_| word.len() > 4) {
+        return format!("{stripped}y");
     }
-    if word.ends_with("ness") {
-        return word[..word.len() - 4].to_string();
+    if let Some(stripped) = word.strip_suffix("ly").filter(|_| word.len() > 4) {
+        return stripped.to_string();
     }
-    if word.ends_with("ing") && word.len() > 5 {
-        return word[..word.len() - 3].to_string();
+    if let Some(stripped) = word.strip_suffix("ed").filter(|_| word.len() > 4) {
+        return stripped.to_string();
     }
-    if word.ends_with("ies") && word.len() > 4 {
-        return format!("{}y", &word[..word.len() - 3]);
+    if let Some(stripped) = word.strip_suffix("es").filter(|_| word.len() > 4) {
+        return stripped.to_string();
     }
-    if word.ends_with("ly") && word.len() > 4 {
-        return word[..word.len() - 2].to_string();
-    }
-    if word.ends_with("ed") && word.len() > 4 {
-        return word[..word.len() - 2].to_string();
-    }
-    if word.ends_with("es") && word.len() > 4 {
-        return word[..word.len() - 2].to_string();
-    }
-    if word.ends_with("s") && !word.ends_with("ss") && word.len() > 4 {
-        return word[..word.len() - 1].to_string();
+    if !word.ends_with("ss") {
+        if let Some(stripped) = word.strip_suffix('s').filter(|_| word.len() > 4) {
+            return stripped.to_string();
+        }
     }
     word.to_string()
 }
 
 #[cfg(feature = "extension-module")]
 #[pyfunction]
-fn tokenize(text: String, stop_words: std::collections::HashSet<String>, apply_stemming: bool, min_length: usize) -> Vec<String> {
+fn tokenize(
+    text: String,
+    stop_words: std::collections::HashSet<String>,
+    apply_stemming: bool,
+    min_length: usize,
+) -> Vec<String> {
     let mut tokens = Vec::new();
     let lower = text.to_lowercase();
     for token in lower.split(|c: char| !c.is_alphanumeric()) {

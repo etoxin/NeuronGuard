@@ -22,6 +22,7 @@ Replaces the manual bucket-computation and oversampling boilerplate in the
 fraud scanner example.
 """
 
+import bisect
 import json
 import os
 import random
@@ -56,6 +57,8 @@ class TabularClassifier:
         baseline_delta: int = 10,
         use_feature_interactions: bool = False,
         interaction_vocab_size: int = 1000000,
+        bucket_strategy: str = "uniform",
+        decision_threshold: float = 0.0,
     ) -> None:
         """Initialise a TabularClassifier.
 
@@ -69,6 +72,14 @@ class TabularClassifier:
             use_feature_interactions (bool, optional): If True, hashes pairs of features to capture 2D non-linear patterns. Defaults to False.
             interaction_vocab_size (int, optional): Size of the hash space for interactions to prevent collisions. Defaults to 1000000.
         """
+        if not 1 <= num_classes <= 8:
+            raise ValueError("num_classes must be between 1 and 8")
+        if num_features < 1:
+            raise ValueError("num_features must be positive")
+        if buckets_per_feature < 2:
+            raise ValueError("buckets_per_feature must be at least 2")
+        if use_feature_interactions and interaction_vocab_size < 1:
+            raise ValueError("interaction_vocab_size must be positive")
         self.num_classes = num_classes
         self.num_features = num_features
         self.buckets_per_feature = buckets_per_feature
@@ -77,6 +88,10 @@ class TabularClassifier:
         self.baseline_delta = baseline_delta
         self.use_feature_interactions = use_feature_interactions
         self.interaction_vocab_size = interaction_vocab_size
+        if bucket_strategy not in {"uniform", "quantile"}:
+            raise ValueError("bucket_strategy must be 'uniform' or 'quantile'")
+        self.bucket_strategy = bucket_strategy
+        self.decision_threshold = float(decision_threshold)
 
         self.num_sensory = num_features * buckets_per_feature
         if self.use_feature_interactions:
@@ -85,6 +100,7 @@ class TabularClassifier:
         self._field: Optional[Any] = None
         self._features_min: Optional[List[float]] = None
         self._features_max: Optional[List[float]] = None
+        self._bucket_boundaries: Optional[List[List[float]]] = None
         self._is_fitted: bool = False
 
     def _ensure_field(self) -> None:
@@ -103,16 +119,37 @@ class TabularClassifier:
             records (Iterable[Union[List[float], Tuple[float, ...]]]): Training records.
             feature_indices (List[int]): Indices of the features.
         """
-        self._features_min = [float("inf")] * self.num_features
-        self._features_max = [float("-inf")] * self.num_features
+        if len(feature_indices) != self.num_features:
+            raise ValueError(
+                f"expected {self.num_features} feature indices, got {len(feature_indices)}"
+            )
+
+        feature_values = [[] for _ in range(self.num_features)]
 
         for record in records:
             for i, fi in enumerate(feature_indices):
                 val = float(record[fi])
-                if val < self._features_min[i]:
-                    self._features_min[i] = val
-                if val > self._features_max[i]:
-                    self._features_max[i] = val
+                feature_values[i].append(val)
+
+        if any(not values for values in feature_values):
+            raise ValueError("cannot fit bucket boundaries from an empty dataset")
+
+        self._features_min = [min(values) for values in feature_values]
+        self._features_max = [max(values) for values in feature_values]
+        if self.bucket_strategy == "quantile":
+            self._bucket_boundaries = []
+            for values in feature_values:
+                ordered = sorted(values)
+                boundaries = []
+                for bucket_index in range(1, self.buckets_per_feature):
+                    value_index = min(
+                        len(ordered) - 1,
+                        (bucket_index * len(ordered)) // self.buckets_per_feature,
+                    )
+                    boundaries.append(ordered[value_index])
+                self._bucket_boundaries.append(boundaries)
+        else:
+            self._bucket_boundaries = None
 
     def _get_tokens(self, features: List[float]) -> List[int]:
         """Convert a list of feature values to sensory neuron indices.
@@ -129,7 +166,10 @@ class TabularClassifier:
             min_val = self._features_min[i]
             max_val = self._features_max[i]
 
-            if max_val > min_val:
+            if self.bucket_strategy == "quantile":
+                bucket = bisect.bisect_right(self._bucket_boundaries[i], val)
+                bucket = min(bucket, self.buckets_per_feature - 1)
+            elif max_val > min_val:
                 if val <= min_val:
                     bucket = 0
                 elif val >= max_val:
@@ -252,6 +292,10 @@ class TabularClassifier:
             skip_header (bool, optional): Whether to skip the first row. Defaults to False.
         """
         import csv
+        if self.bucket_strategy == "quantile":
+            raise ValueError(
+                "exact quantile bucketing requires fit() with in-memory records"
+            )
         if class_weights is None:
             class_weights = {}
 
@@ -301,8 +345,7 @@ class TabularClassifier:
     def update(self, X: Iterable[Union[List[float], Tuple[float, ...]]], label_index: int, class_weights: Optional[Dict[int, int]] = None) -> None:
         """Continually learn from new records on the fly.
         
-        This enables zero-overhead online/continuous learning. The model weights are
-        updated instantly.
+        This updates the existing model weights without rebuilding bucket boundaries.
         
         Args:
             X (Iterable[Union[List[float], Tuple[float, ...]]]): Iterable of lists of floats (features) with the label appended.
@@ -371,11 +414,11 @@ class TabularClassifier:
         Returns:
             int: The predicted class index (0-indexed).
         """
-        tokens = self._get_tokens(features)
-        self._field.reset_potentials()
-        self._field.predict(tokens)
-        potentials = self._field.get_potentials()
-        return potentials.index(max(potentials))
+        scores = self.predict_scores(features)
+        if self.num_classes == 2:
+            margin = scores[1] - scores[0]
+            return 1 if margin >= self.decision_threshold else 0
+        return scores.index(max(scores))
 
     def predict_scores(self, features: List[float]) -> List[int]:
         """Classify a feature vector and return raw potentials for all classes.
@@ -386,10 +429,77 @@ class TabularClassifier:
         Returns:
             List[int]: A list of integer potentials, one per class.
         """
-        tokens = self._get_tokens(features)
-        self._field.reset_potentials()
-        self._field.predict(tokens)
-        return self._field.get_potentials()
+        if not self._is_fitted:
+            raise RuntimeError("Classifier must be fitted before prediction.")
+        if len(features) != self.num_features:
+            raise ValueError(
+                f"expected {self.num_features} features, got {len(features)}"
+            )
+        return self._field.predict_scores(self._get_tokens(features))
+
+    def predict_margin(self, features: List[float]) -> int:
+        """Return the class-1 minus class-0 score for a binary classifier."""
+        if self.num_classes != 2:
+            raise ValueError("predict_margin is only available for binary classifiers")
+        scores = self.predict_scores(features)
+        return scores[1] - scores[0]
+
+    def tune_decision_threshold(
+        self,
+        records: Iterable[Union[List[float], Tuple[float, ...]]],
+        feature_indices: List[int],
+        label_index: int,
+    ) -> float:
+        """Select the validation-set score threshold that maximizes binary F1.
+
+        The supplied records must be held out from model training. The selected
+        threshold is stored on the classifier and used by subsequent predictions.
+        """
+        if self.num_classes != 2:
+            raise ValueError("decision-threshold tuning requires two classes")
+
+        ranked = []
+        positive_count = 0
+        for record in records:
+            label = int(record[label_index])
+            if label not in (0, 1):
+                raise ValueError("binary threshold labels must be 0 or 1")
+            features = [record[index] for index in feature_indices]
+            ranked.append((self.predict_margin(features), label))
+            positive_count += label
+
+        if not ranked or positive_count == 0 or positive_count == len(ranked):
+            raise ValueError("threshold tuning requires records from both classes")
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        true_positives = 0
+        false_positives = 0
+        best_f1 = -1.0
+        best_threshold = float(ranked[0][0])
+        index = 0
+        while index < len(ranked):
+            threshold = ranked[index][0]
+            while index < len(ranked) and ranked[index][0] == threshold:
+                if ranked[index][1] == 1:
+                    true_positives += 1
+                else:
+                    false_positives += 1
+                index += 1
+
+            false_negatives = positive_count - true_positives
+            precision = true_positives / (true_positives + false_positives)
+            recall = true_positives / (true_positives + false_negatives)
+            f1 = (
+                2 * precision * recall / (precision + recall)
+                if precision + recall
+                else 0.0
+            )
+            if f1 > best_f1:
+                best_f1 = f1
+                best_threshold = float(threshold)
+
+        self.decision_threshold = best_threshold
+        return best_threshold
 
     # -------------------------------------------------------------------------
     # Evaluation
@@ -528,6 +638,11 @@ class TabularClassifier:
             "baseline_delta": self.baseline_delta,
             "features_min": self._features_min,
             "features_max": self._features_max,
+            "bucket_strategy": self.bucket_strategy,
+            "bucket_boundaries": self._bucket_boundaries,
+            "decision_threshold": self.decision_threshold,
+            "use_feature_interactions": self.use_feature_interactions,
+            "interaction_vocab_size": self.interaction_vocab_size,
         }
         with open(os.path.join(path, "config.json"), "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
@@ -552,10 +667,15 @@ class TabularClassifier:
             amplify_delta=config.get("amplify_delta", 15),
             suppress_delta=config.get("suppress_delta", 5),
             baseline_delta=config.get("baseline_delta", 10),
+            bucket_strategy=config.get("bucket_strategy", "uniform"),
+            decision_threshold=config.get("decision_threshold", 0.0),
+            use_feature_interactions=config.get("use_feature_interactions", False),
+            interaction_vocab_size=config.get("interaction_vocab_size", 1000000),
         )
 
         classifier._features_min = config["features_min"]
         classifier._features_max = config["features_max"]
+        classifier._bucket_boundaries = config.get("bucket_boundaries")
 
         classifier._ensure_field()
         classifier._field.load_weights(os.path.join(path, "weights.bin"))
